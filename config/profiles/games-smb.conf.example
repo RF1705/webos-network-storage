@@ -1,0 +1,9 @@
+# Install as profiles/games.conf, remove comments, and set mode 0600.
+PROTOCOL=smb
+SERVER=192.168.3.1
+REMOTE_PATH=FRITZ.NAS/Games
+MOUNT_NAME=games
+READ_ONLY=true
+AUTO_CONNECT=true
+APP_IDS=org.scummvm.scummvm com.retroarch
+

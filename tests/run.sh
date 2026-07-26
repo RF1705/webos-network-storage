@@ -31,8 +31,8 @@ expect_failure() {
 
 cat > "$PROFILE_DIR/games.conf" <<'EOF'
 PROTOCOL=nfs
-SERVER=192.168.3.20
-REMOTE_PATH=/volume1/Games
+SERVER=192.0.2.10
+REMOTE_PATH=/exports/Games
 MOUNT_NAME=games
 READ_ONLY=true
 AUTO_CONNECT=false
@@ -55,21 +55,21 @@ expect_failure run_helper validate invalid
 grep -q "unknown key" "$TMP_DIR/output"
 
 cp "$PROFILE_DIR/games.conf" "$PROFILE_DIR/traversal.conf"
-sed 's#REMOTE_PATH=/volume1/Games#REMOTE_PATH=/volume1/../etc#' \
+sed 's#REMOTE_PATH=/exports/Games#REMOTE_PATH=/exports/../etc#' \
 	"$PROFILE_DIR/games.conf" > "$PROFILE_DIR/traversal.conf"
 chmod 0600 "$PROFILE_DIR/traversal.conf"
 expect_failure run_helper validate traversal
 grep -q "invalid REMOTE_PATH" "$TMP_DIR/output"
 
-sed 's#REMOTE_PATH=/volume1/Games#REMOTE_PATH=$(printf injected)#' \
+sed 's#REMOTE_PATH=/exports/Games#REMOTE_PATH=$(printf injected)#' \
 	"$PROFILE_DIR/games.conf" > "$PROFILE_DIR/injection.conf"
 chmod 0600 "$PROFILE_DIR/injection.conf"
 expect_failure run_helper validate injection
 
 cat > "$PROFILE_DIR/fritz.conf" <<'EOF'
 PROTOCOL=smb
-SERVER=192.168.3.1
-REMOTE_PATH=FRITZ.NAS/Games
+SERVER=192.0.2.10
+REMOTE_PATH=Games
 MOUNT_NAME=fritz-games
 READ_ONLY=true
 AUTO_CONNECT=true

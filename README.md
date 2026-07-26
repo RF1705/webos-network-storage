@@ -50,8 +50,8 @@ Copy `config/profiles/games-smb.conf.example` to
 
 ```ini
 PROTOCOL=smb
-SERVER=192.168.3.1
-REMOTE_PATH=FRITZ.NAS/Games
+SERVER=192.0.2.10
+REMOTE_PATH=Games
 MOUNT_NAME=games
 READ_ONLY=true
 AUTO_CONNECT=true

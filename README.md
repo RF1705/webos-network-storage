@@ -24,6 +24,9 @@ Luna service, the privileged mount helper, and the ARMv7 SMB/FUSE binary.
 - separate root-only SMB credentials;
 - bind mounts into explicitly selected application jails;
 - small ARMv7 `rclone-smb` build for webOS/FUSE;
+- automatic `fusermount3` compatibility on webOS systems that provide only
+  `fusermount`;
+- app-readable mount and jail paths for non-root homebrew applications;
 - shell tests and an ARMv7 build workflow.
 
 ## Layout
@@ -123,10 +126,21 @@ Select **ScummVM** in the profile. Inside ScummVM, add that same path as the
 game directory. The service bind-mounts it into ScummVM's app jail when the
 profile connects.
 
+## Root requirement
+
+The application UI can be installed in Developer Mode without root, but
+creating the actual network mount is intentionally root-only. NFS mounts and
+bind mounts into another application's jail require mount privileges. SMB also
+needs a bind mount to make its FUSE filesystem visible inside ScummVM or
+another selected application. Therefore the complete ScummVM/RetroArch use
+case requires a rooted TV and an elevated service.
+
 ## Builds and releases
 
 Every push to `main` and every manual run of the `Build` workflow creates a
 downloadable artifact containing the installable IPK, a standalone helper
 archive, and SHA-256 checksums. To publish a GitHub release, start the workflow
-manually and enter a version such as `v0.1.0`. If the version field is left
-empty, only the artifact is generated.
+manually and enter a version such as `v0.1.1`, or push a main-branch commit
+whose complete message is `Release v0.1.1`. If no release version is supplied,
+only the build artifact is generated. A release also contains the manifest
+consumed by the webOS Homebrew Channel.

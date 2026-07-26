@@ -35,6 +35,9 @@ fi
 PROFILE_DIR=$STATE_DIR/profiles
 CREDENTIAL_DIR=$STATE_DIR/credentials
 RUNTIME_DIR=$STATE_DIR/runtime
+RCLONE_BIN_DIR=${RCLONE_BIN%/*}
+PATH=$RCLONE_BIN_DIR:$PATH
+export PATH
 
 fail() {
 	echo "$PROGRAM: $*" >&2
@@ -199,6 +202,23 @@ is_mounted() {
 	fi
 }
 
+ensure_fusermount3() {
+	if command -v fusermount3 >/dev/null 2>&1; then
+		return 0
+	fi
+
+	fusermount_bin=$(command -v fusermount 2>/dev/null || true)
+	[ -n "$fusermount_bin" ] ||
+		fail "neither fusermount3 nor fusermount is available"
+	mkdir -p "$RCLONE_BIN_DIR"
+	ln -sf "$fusermount_bin" "$RCLONE_BIN_DIR/fusermount3"
+}
+
+prepare_mount_point() {
+	mkdir -p "$MOUNT_ROOT" "$MOUNT_POINT"
+	chmod 0755 "$MOUNT_ROOT" "$MOUNT_POINT"
+}
+
 write_rclone_config() {
 	load_credentials
 	mkdir -p "$RUNTIME_DIR"
@@ -217,6 +237,7 @@ write_rclone_config() {
 
 mount_smb() {
 	[ -x "$RCLONE_BIN" ] || fail "SMB helper is not executable: $RCLONE_BIN"
+	ensure_fusermount3
 	write_rclone_config
 	dir_perms=0555
 	file_perms=0444
@@ -227,10 +248,11 @@ mount_smb() {
 	set -- mount "storage:$REMOTE_PATH" "$MOUNT_POINT" \
 		--config "$RCLONE_CONFIG" \
 		--daemon --daemon-wait 20s --allow-other \
-		--uid 0 --gid 0 --dir-perms "$dir_perms" --file-perms "$file_perms" \
+		--uid 0 --gid 0 --umask 000 \
+		--dir-perms "$dir_perms" --file-perms "$file_perms" \
 		--buffer-size 4M --vfs-cache-mode off \
 		--vfs-read-chunk-size 4M --vfs-read-chunk-size-limit 32M \
-		--dir-cache-time 1m \
+		--dir-cache-time 1m --poll-interval 0 \
 		--log-file "$RUNTIME_DIR/$PROFILE_ID.log" --log-level INFO
 	[ "$READ_ONLY" = false ] || set -- "$@" --read-only
 	"$RCLONE_BIN" "$@"
@@ -247,12 +269,14 @@ mount_nfs() {
 expose_profile() {
 	for app_id in $APP_IDS; do
 		jail=$JAIL_ROOT/$app_id
-		target=$jail$MOUNT_POINT
+		jail_mount_root=$jail$MOUNT_ROOT
+		target=$jail_mount_root/$MOUNT_NAME
 		if [ ! -d "$jail" ]; then
 			echo "Skipping $app_id: jail does not exist" >&2
 			continue
 		fi
 		mkdir -p "$target"
+		chmod 0755 "$jail_mount_root" "$target"
 		if ! is_mounted "$target"; then
 			"$MOUNT_BIN" --bind "$MOUNT_POINT" "$target"
 			if [ "$READ_ONLY" = true ]; then
@@ -301,7 +325,7 @@ command_test() {
 command_mount() {
 	require_root
 	load_profile "$1"
-	mkdir -p "$MOUNT_POINT"
+	prepare_mount_point
 	if ! is_mounted "$MOUNT_POINT"; then
 		if [ "$PROTOCOL" = smb ]; then mount_smb; else mount_nfs; fi
 	fi

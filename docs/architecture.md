@@ -69,8 +69,16 @@ Read-only is the default and examples enable it explicitly. Writable mounts
 require `READ_ONLY=false`.
 
 SMB uses small buffers and disables the VFS cache to limit storage and memory
-use on the TV. NFS uses TCP and bounded retry timings. Unmounting first removes
-all profile bind mounts and then the host mount.
+use on the TV. The helper maps webOS' existing `fusermount` to the
+`fusermount3` name expected by rclone, and creates shared mount paths with
+traverse/read permissions for the unprivileged target application. NFS uses
+TCP and bounded retry timings. Unmounting first removes all profile bind mounts
+and then the host mount.
+
+The actual mount and jail exposure cannot run in Developer Mode alone. Both
+kernel NFS mounts and bind mounts into another application's jail require root
+mount privileges. The UI itself remains unprivileged; only its narrowly scoped
+service is elevated.
 
 ## Startup and reconnect
 

@@ -17,6 +17,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.version.outputs.release_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,25 +58,46 @@ jobs:
           -o ../../dist/rclone-smb
           .
 
-      - name: Prepare IPK and distribution archive
+      - name: Resolve package version
+        id: version
         env:
-          VERSION: ${{ inputs.version }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -eu
 
-          if [ -n "$VERSION" ]; then
-            if ! printf '%s\n' "$VERSION" |
-              grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "Invalid version: $VERSION" >&2
-              exit 1
-            fi
-            package_version=${VERSION#v}
-          else
-            package_version=$(git rev-parse --short HEAD)
+          release_version=
+          if [ -n "$REQUESTED_VERSION" ]; then
+            release_version=$REQUESTED_VERSION
+          elif printf '%s\n' "$COMMIT_MESSAGE" |
+            grep -Eq '^Release v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            release_version=${COMMIT_MESSAGE#Release }
           fi
 
-          ipk_version=$package_version
-          [ -n "$VERSION" ] || ipk_version="0.0.${GITHUB_RUN_NUMBER}"
+          if [ -n "$release_version" ]; then
+            if ! printf '%s\n' "$release_version" |
+              grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Invalid version: $release_version" >&2
+              exit 1
+            fi
+            package_version=${release_version#v}
+            release_version=v$package_version
+            ipk_version=$package_version
+          else
+            package_version=$(git rev-parse --short HEAD)
+            ipk_version="0.0.${GITHUB_RUN_NUMBER}"
+          fi
+
+          echo "package_version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "ipk_version=$ipk_version" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare IPK and distribution archive
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+          IPK_VERSION: ${{ steps.version.outputs.ipk_version }}
+        run: |
+          set -eu
 
           node -e '
             const fs = require("fs");
@@ -82,14 +105,14 @@ jobs:
             const app = JSON.parse(fs.readFileSync(file, "utf8"));
             app.version = process.argv[1];
             fs.writeFileSync(file, JSON.stringify(app, null, 2) + "\n");
-          ' "$ipk_version"
+          ' "$IPK_VERSION"
           node tools/make-icons.js
           mkdir -p service/bin dist
           install -m 0755 bin/webos-network-storage service/bin/
           install -m 0755 dist/rclone-smb service/bin/
           node tools/package-ipk.js app service dist
 
-          ipk="dist/com.rf1705.networkstorage_${ipk_version}_arm.ipk"
+          ipk="dist/com.rf1705.networkstorage_${IPK_VERSION}_arm.ipk"
           test -f "$ipk"
           verify_dir=$(mktemp -d)
           (
@@ -108,12 +131,18 @@ jobs:
           install -m 0755 dist/rclone-smb "$package_dir/bin/"
           cp -R config docs LICENSE README.md "$package_dir/"
 
-          archive="dist/webos-network-storage-${package_version}-armv7.tar.gz"
+          archive="dist/webos-network-storage-${PACKAGE_VERSION}-armv7.tar.gz"
           tar -czf "$archive" -C build webos-network-storage
+
+          node tools/create-manifest.js \
+            app/appinfo.json \
+            "$ipk" \
+            dist/com.rf1705.networkstorage.manifest.json
+
           (
             cd dist
             sha256sum webos-network-storage-*.tar.gz *.ipk \
-              > "webos-network-storage-${package_version}.sha256"
+              > "webos-network-storage-${PACKAGE_VERSION}.sha256"
           )
 
       - name: Upload build artifact
@@ -122,12 +151,13 @@ jobs:
           name: webos-network-storage
           path: |
             dist/*.ipk
+            dist/*.manifest.json
             dist/webos-network-storage-*.tar.gz
             dist/webos-network-storage-*.sha256
           if-no-files-found: error
 
   release:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+    if: ${{ needs.build.outputs.release_version != '' }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -142,7 +172,7 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.build.outputs.release_version }}
         run: >-
           gh release create "$VERSION"
           release/*

@@ -94,7 +94,7 @@ function startSupervisor() {
   var proc = childProcess.spawn(HELPER, ["supervise"], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin" }
+    env: { PATH: BIN_DIR + ":/usr/sbin:/usr/bin:/sbin:/bin" }
   });
   proc.unref();
   fs.writeFileSync(pidFile, String(proc.pid) + "\n", { mode: 384 });

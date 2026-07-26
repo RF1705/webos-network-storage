@@ -8,7 +8,12 @@ trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 STATE_DIR=$TMP_DIR/state
 PROFILE_DIR=$STATE_DIR/profiles
 CREDENTIAL_DIR=$STATE_DIR/credentials
-mkdir -p "$PROFILE_DIR" "$CREDENTIAL_DIR" "$TMP_DIR/mounts" "$TMP_DIR/jails"
+TEST_BIN=$TMP_DIR/test-bin
+mkdir -p "$PROFILE_DIR" "$CREDENTIAL_DIR" "$STATE_DIR/bin" \
+	"$TMP_DIR/mounts" "$TMP_DIR/jails" "$TEST_BIN"
+for command_name in id sed wc tr stat mkdir chmod ln awk; do
+	ln -s "$(command -v "$command_name")" "$TEST_BIN/$command_name"
+done
 
 HELPER=$ROOT/bin/webos-network-storage
 
@@ -84,5 +89,41 @@ DOMAIN=WORKGROUP
 EOF
 chmod 0600 "$PROFILE_DIR/fritz.conf" "$CREDENTIAL_DIR/fritz.conf"
 run_helper validate fritz | grep -q "is valid"
+
+cat > "$TEST_BIN/fusermount" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat > "$STATE_DIR/bin/rclone-smb" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TMP_DIR/rclone-args"
+exit 0
+EOF
+cat > "$TEST_BIN/mount" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TMP_DIR/mount-args"
+exit 0
+EOF
+cat > "$TEST_BIN/umount" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 0755 "$TEST_BIN/fusermount" "$TEST_BIN/mount" "$TEST_BIN/umount" \
+	"$STATE_DIR/bin/rclone-smb"
+
+PATH=$TEST_BIN \
+WNS_RCLONE_BIN=$STATE_DIR/bin/rclone-smb \
+WNS_MOUNT_BIN=$TEST_BIN/mount \
+WNS_UMOUNT_BIN=$TEST_BIN/umount \
+run_helper mount fritz | grep -q "is mounted"
+
+test -L "$STATE_DIR/bin/fusermount3"
+grep -q -- '--umask 000' "$TMP_DIR/rclone-args"
+grep -q -- '--poll-interval 0' "$TMP_DIR/rclone-args"
+test "$(stat -c '%a' "$TMP_DIR/mounts")" = 755
+test "$(stat -c '%a' "$TMP_DIR/mounts/fritz-games")" = 755
+JAIL_MOUNT_ROOT=$TMP_DIR/jails/org.scummvm.scummvm$TMP_DIR/mounts
+test "$(stat -c '%a' "$JAIL_MOUNT_ROOT")" = 755
+test "$(stat -c '%a' "$JAIL_MOUNT_ROOT/fritz-games")" = 755
 
 echo "All helper tests passed."

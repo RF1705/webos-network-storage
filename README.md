@@ -104,7 +104,7 @@ support and a reduced rclone binary.
 
 Download the `webos-network-storage` artifact from the latest successful
 GitHub Actions run and extract it. Install the included
-`com.rf1705.networkstorage_*.ipk` with webOS Dev Manager, `ares-install`, or
+`com.rf1705.networkstorage_*_arm.ipk` with webOS Dev Manager, `ares-install`, or
 the Homebrew Channel.
 
 On the first launch, select **Jetzt einrichten**. The app asks the already

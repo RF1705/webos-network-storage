@@ -87,7 +87,20 @@ jobs:
           mkdir -p service/bin dist
           install -m 0755 bin/webos-network-storage service/bin/
           install -m 0755 dist/rclone-smb service/bin/
-          npx ares-package app service -o dist
+          node tools/package-ipk.js app service dist
+
+          ipk="dist/com.rf1705.networkstorage_${ipk_version}_arm.ipk"
+          test -f "$ipk"
+          verify_dir=$(mktemp -d)
+          (
+            cd "$verify_dir"
+            ar x "$GITHUB_WORKSPACE/$ipk"
+            tar --no-same-owner -xzf control.tar.gz control
+            grep -qx 'Architecture: arm' control
+            tar -tzf data.tar.gz |
+              grep -qx 'usr/palm/services/com.rf1705.networkstorage.service/bin/rclone-smb'
+          )
+          rm -rf "$verify_dir"
 
           package_dir=build/webos-network-storage
           mkdir -p "$package_dir/bin" dist

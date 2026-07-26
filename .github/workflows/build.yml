@@ -30,7 +30,7 @@ jobs:
 
       - name: Download dependencies
         working-directory: tools/rclone-smb
-        run: go mod download
+        run: go mod download all
 
       - name: Build ARMv7 helper
         working-directory: tools/rclone-smb

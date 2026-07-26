@@ -1,4 +1,5 @@
 # Install as profiles/games.conf, remove comments, and set mode 0600.
+DISPLAY_NAME=Games (SMB)
 PROTOCOL=smb
 SERVER=192.0.2.10
 REMOTE_PATH=Games

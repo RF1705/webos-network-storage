@@ -7,7 +7,7 @@ umask 077
 DEFAULT_STATE_DIR=/var/lib/webosbrew/network-storage
 DEFAULT_MOUNT_ROOT=/media/developer/network-storage
 DEFAULT_JAIL_ROOT=/var/palm/jail
-DEFAULT_RCLONE_BIN=/var/lib/webosbrew/bin/rclone-smb
+DEFAULT_RCLONE_BIN=/var/lib/webosbrew/network-storage/bin/rclone-smb
 
 if [ "${WNS_TEST_MODE:-false}" = true ]; then
 	STATE_DIR=${WNS_STATE_DIR:-$DEFAULT_STATE_DIR}
@@ -52,6 +52,7 @@ Usage:
   $PROGRAM expose PROFILE
   $PROGRAM list-apps
   $PROGRAM autostart
+  $PROGRAM supervise
 EOF
 	exit 2
 }
@@ -138,10 +139,11 @@ load_profile() {
 	validate_profile_id "$PROFILE_ID" || fail "invalid profile ID: $PROFILE_ID"
 	PROFILE_FILE=$PROFILE_DIR/$PROFILE_ID.conf
 	validate_file_shape "$PROFILE_FILE" \
-		"PROTOCOL SERVER REMOTE_PATH MOUNT_NAME READ_ONLY AUTO_CONNECT APP_IDS NFS_VERSION"
+		"DISPLAY_NAME PROTOCOL SERVER REMOTE_PATH MOUNT_NAME READ_ONLY AUTO_CONNECT APP_IDS NFS_VERSION"
 	require_mode_0600 "$PROFILE_FILE"
 
 	PROTOCOL=$(value_of PROTOCOL "$PROFILE_FILE")
+	DISPLAY_NAME=$(value_of DISPLAY_NAME "$PROFILE_FILE")
 	SERVER=$(value_of SERVER "$PROFILE_FILE")
 	REMOTE_PATH=$(value_of REMOTE_PATH "$PROFILE_FILE")
 	MOUNT_NAME=$(value_of MOUNT_NAME "$PROFILE_FILE")
@@ -151,6 +153,7 @@ load_profile() {
 	NFS_VERSION=$(value_of NFS_VERSION "$PROFILE_FILE")
 
 	case $PROTOCOL in smb|nfs) ;; *) fail "PROTOCOL must be smb or nfs" ;; esac
+	[ "${#DISPLAY_NAME}" -le 60 ] || fail "DISPLAY_NAME is too long"
 	is_safe_server "$SERVER" || fail "invalid SERVER"
 	is_safe_path "$REMOTE_PATH" || fail "invalid REMOTE_PATH"
 	is_safe_mount_name "$MOUNT_NAME" || fail "invalid MOUNT_NAME"
@@ -351,12 +354,33 @@ command_autostart() {
 		found=true
 		profile_id=${profile_file##*/}
 		profile_id=${profile_id%.conf}
+		inhibit_file=$RUNTIME_DIR/inhibit-$profile_id
+		if [ -e "$inhibit_file" ]; then
+			inhibit_pid=$(sed -n '1p' "$inhibit_file")
+			case $inhibit_pid in
+				''|*[!0-9]*) inhibit_pid=0 ;;
+			esac
+			if [ "$inhibit_pid" -gt 1 ] && kill -0 "$inhibit_pid" 2>/dev/null; then
+				continue
+			fi
+			rm -f "$inhibit_file"
+		fi
 		load_profile "$profile_id"
 		if [ "$AUTO_CONNECT" = true ]; then
-			command_mount "$profile_id"
+			if ! "$0" mount "$profile_id" >/dev/null; then
+				echo "Reconnect failed for '$profile_id'." >&2
+			fi
 		fi
 	done
 	[ "$found" = true ] || echo "No profiles found in $PROFILE_DIR."
+}
+
+command_supervise() {
+	require_root
+	while :; do
+		command_autostart || true
+		sleep 30
+	done
 }
 
 command=${1-}
@@ -368,6 +392,10 @@ case $command in
 	autostart)
 		[ "$#" -eq 1 ] || usage
 		command_autostart
+		;;
+	supervise)
+		[ "$#" -eq 1 ] || usage
+		command_supervise
 		;;
 	list-apps)
 		[ "$#" -eq 1 ] || usage

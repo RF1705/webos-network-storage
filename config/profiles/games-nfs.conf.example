@@ -1,4 +1,5 @@
 # Install as profiles/games.conf, remove comments, and set mode 0600.
+DISPLAY_NAME=Games (NFS)
 PROTOCOL=nfs
 SERVER=192.0.2.10
 REMOTE_PATH=/exports/Games

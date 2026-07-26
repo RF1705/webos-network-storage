@@ -1,0 +1,9 @@
+{
+  "id": "com.rf1705.networkstorage.service",
+  "description": "Network Storage mount service",
+  "services": [
+    {
+      "name": "com.rf1705.networkstorage.service"
+    }
+  ]
+}

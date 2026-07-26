@@ -23,6 +23,17 @@ jobs:
       - name: Run helper tests
         run: tests/run.sh
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install webOS packaging tools
+        run: npm ci
+
+      - name: Run service tests
+        run: node tests/profile-store.test.js
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.x"
@@ -45,7 +56,7 @@ jobs:
           -o ../../dist/rclone-smb
           .
 
-      - name: Create distribution archive
+      - name: Prepare IPK and distribution archive
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -53,7 +64,7 @@ jobs:
 
           if [ -n "$VERSION" ]; then
             if ! printf '%s\n' "$VERSION" |
-              grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+              grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
               echo "Invalid version: $VERSION" >&2
               exit 1
             fi
@@ -61,6 +72,22 @@ jobs:
           else
             package_version=$(git rev-parse --short HEAD)
           fi
+
+          ipk_version=$package_version
+          [ -n "$VERSION" ] || ipk_version="0.0.${GITHUB_RUN_NUMBER}"
+
+          node -e '
+            const fs = require("fs");
+            const file = "app/appinfo.json";
+            const app = JSON.parse(fs.readFileSync(file, "utf8"));
+            app.version = process.argv[1];
+            fs.writeFileSync(file, JSON.stringify(app, null, 2) + "\n");
+          ' "$ipk_version"
+          node tools/make-icons.js
+          mkdir -p service/bin dist
+          install -m 0755 bin/webos-network-storage service/bin/
+          install -m 0755 dist/rclone-smb service/bin/
+          npx ares-package app service -o dist
 
           package_dir=build/webos-network-storage
           mkdir -p "$package_dir/bin" dist
@@ -70,15 +97,20 @@ jobs:
 
           archive="dist/webos-network-storage-${package_version}-armv7.tar.gz"
           tar -czf "$archive" -C build webos-network-storage
-          sha256sum "$archive" > "$archive.sha256"
+          (
+            cd dist
+            sha256sum webos-network-storage-*.tar.gz *.ipk \
+              > "webos-network-storage-${package_version}.sha256"
+          )
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webos-network-storage-armv7
+          name: webos-network-storage
           path: |
+            dist/*.ipk
             dist/webos-network-storage-*.tar.gz
-            dist/webos-network-storage-*.tar.gz.sha256
+            dist/webos-network-storage-*.sha256
           if-no-files-found: error
 
   release:
@@ -91,7 +123,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: webos-network-storage-armv7
+          name: webos-network-storage
           path: release
 
       - name: Create GitHub release

@@ -1,3 +1,4 @@
 config/credentials/*.conf
 dist/
-
+node_modules/
+service/bin/

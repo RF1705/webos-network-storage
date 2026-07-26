@@ -30,6 +30,7 @@ expect_failure() {
 }
 
 cat > "$PROFILE_DIR/games.conf" <<'EOF'
+DISPLAY_NAME=Games
 PROTOCOL=nfs
 SERVER=192.0.2.10
 REMOTE_PATH=/exports/Games
@@ -67,6 +68,7 @@ chmod 0600 "$PROFILE_DIR/injection.conf"
 expect_failure run_helper validate injection
 
 cat > "$PROFILE_DIR/fritz.conf" <<'EOF'
+DISPLAY_NAME=Games SMB
 PROTOCOL=smb
 SERVER=192.0.2.10
 REMOTE_PATH=Games

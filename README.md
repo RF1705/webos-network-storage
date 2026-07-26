@@ -7,14 +7,16 @@ The project is intentionally independent of any emulator. A single SMB or NFS
 profile can be exposed to ScummVM, RetroArch, or other selected application
 jails.
 
-> [!IMPORTANT]
-> This is an early, root-only helper release. It does not install anything on a
-> TV automatically yet. The webOS service, TV UI, IPK packaging, and hardware
-> validation will follow.
+The downloadable IPK combines a Magic Remote-friendly TV interface, a narrow
+Luna service, the privileged mount helper, and the ARMv7 SMB/FUSE binary.
 
 ## Current scope
 
-- generic SMB and NFS profiles;
+- multiple SMB and NFS profiles managed on the TV;
+- connection test, connect, disconnect, status, and profile removal;
+- ScummVM selection by default plus RetroArch and detected application jails;
+- one-time service elevation through an installed, rooted Homebrew Channel;
+- automatic reconnect supervision and a boot startup hook;
 - strict profile validation without evaluating profile contents as shell code;
 - `validate`, `test`, `mount`, `unmount`, `status`, `expose`, and `autostart`
   commands, plus app-jail discovery with `list-apps`;
@@ -27,9 +29,10 @@ jails.
 ## Layout
 
 ```text
+app/                            TV web application
+service/                        narrow Luna service and profile store
 bin/webos-network-storage       privileged mount helper
-config/profiles                 example non-secret profiles
-config/credentials              credential file documentation
+config/                         profile and credential examples
 docs/architecture.md            component and security design
 tools/rclone-smb                reduced rclone SMB/FUSE build
 ```
@@ -97,11 +100,33 @@ The initial target is webOS 6.5 on ARMv7. Its kernel has NFS support but no
 CIFS filesystem or `mount.cifs`. SMB therefore uses the TV's existing FUSE
 support and a reduced rclone binary.
 
-No TV filesystem changes are part of this repository's first commit.
+## Install the IPK
+
+Download the `webos-network-storage` artifact from the latest successful
+GitHub Actions run and extract it. Install the included
+`com.rf1705.networkstorage_*.ipk` with webOS Dev Manager, `ares-install`, or
+the Homebrew Channel.
+
+On the first launch, select **Jetzt einrichten**. The app asks the already
+rooted Homebrew Channel to elevate only
+`com.rf1705.networkstorage.service`. The service then installs its two helper
+binaries and the reconnect hook below `/var/lib/webosbrew`. No SMB password is
+placed in a shell command or process argument.
+
+The mount path is derived from the configured mount name:
+
+```text
+/media/developer/network-storage/<mount-name>
+```
+
+Select **ScummVM** in the profile. Inside ScummVM, add that same path as the
+game directory. The service bind-mounts it into ScummVM's app jail when the
+profile connects.
 
 ## Builds and releases
 
 Every push to `main` and every manual run of the `Build` workflow creates a
-downloadable ARMv7 artifact. To publish a GitHub release, start the workflow
+downloadable artifact containing the installable IPK, a standalone helper
+archive, and SHA-256 checksums. To publish a GitHub release, start the workflow
 manually and enter a version such as `v0.1.0`. If the version field is left
 empty, only the artifact is generated.

@@ -7,9 +7,9 @@ TV web application
         |
         | Luna service calls
         v
-unprivileged webOS service
+network-storage Luna service
         |
-        | fixed operations and validated profile IDs
+        | execFile with fixed operations and validated profile IDs
         v
 privileged network-storage helper
         |
@@ -18,9 +18,11 @@ privileged network-storage helper
         +-- bind mounts into selected app jails
 ```
 
-The first version implements the privileged helper and profile contract. The
-web application and Luna service will be separate package components so the UI
-never constructs or executes arbitrary root commands.
+The application and service are packaged in one IPK. On first launch, the UI
+uses the rooted Homebrew Channel's `elevateService` method for the fixed service
+ID `com.rf1705.networkstorage.service`. After elevation, the service installs
+the packaged helper binaries under `/var/lib/webosbrew/network-storage/bin`.
+The UI never constructs or executes arbitrary root commands.
 
 ## Mount model
 
@@ -55,9 +57,11 @@ General profile data lives in `profiles/<id>.conf`. SMB secrets live in
 - never passes passwords on the command line;
 - creates generated rclone configuration with mode `0600`.
 
-The rclone-obscured password is reversible and only protects against accidental
-plain-text disclosure. A suitable webOS keystore interface will be investigated
-before the settings UI stores credentials.
+The clear password arrives in the private service request and is sent to
+`rclone obscure -` through stdin. It is not placed in a command line or log.
+Only the obscured value is written to the root-only credential file. The
+rclone-obscured password is reversible and only protects against accidental
+plain-text disclosure; a user with root access can recover it.
 
 ## Mount behavior
 
@@ -68,12 +72,13 @@ SMB uses small buffers and disables the VFS cache to limit storage and memory
 use on the TV. NFS uses TCP and bounded retry timings. Unmounting first removes
 all profile bind mounts and then the host mount.
 
-## Planned package layers
+## Startup and reconnect
 
-1. Root helper and profile contract.
-2. Read-only TV inspection to verify jail paths, init hooks, and Luna service
-   constraints.
-3. Luna service with a narrow method allowlist and structured status.
-4. Magic Remote-friendly web application.
-5. IPK packaging, reconnect supervision, and release artifacts.
+The root service installs one `run-parts` hook at
+`/var/lib/webosbrew/init.d/webos-network-storage`. It starts the helper's
+supervision loop once per boot. Every 30 seconds the loop checks profiles with
+`AUTO_CONNECT=true` and remounts those whose mount point disappeared.
 
+Hardware validation is still required for the exact jail lifecycle on the
+target webOS 6.5 TV. Missing jails are intentionally skipped; reconnecting or
+selecting **Verbinden** exposes the mount again once a jail exists.

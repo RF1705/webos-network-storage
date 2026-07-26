@@ -1,36 +1,39 @@
-name: Build and test
+name: Build
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional release version, for example v0.1.0"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  shell-tests:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Run helper tests
         run: tests/run.sh
 
-  rclone-smb:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/rclone-smb
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.x"
           cache: false
+
       - name: Download dependencies
+        working-directory: tools/rclone-smb
         run: go mod download
+
       - name: Build ARMv7 helper
+        working-directory: tools/rclone-smb
         env:
           CGO_ENABLED: "0"
           GOOS: linux
@@ -41,9 +44,63 @@ jobs:
           -ldflags="-s -w"
           -o ../../dist/rclone-smb
           .
-      - uses: actions/upload-artifact@v4
+
+      - name: Create distribution archive
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+
+          if [ -n "$VERSION" ]; then
+            if ! printf '%s\n' "$VERSION" |
+              grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+              echo "Invalid version: $VERSION" >&2
+              exit 1
+            fi
+            package_version=${VERSION#v}
+          else
+            package_version=$(git rev-parse --short HEAD)
+          fi
+
+          package_dir=build/webos-network-storage
+          mkdir -p "$package_dir/bin" dist
+          install -m 0755 bin/webos-network-storage "$package_dir/bin/"
+          install -m 0755 dist/rclone-smb "$package_dir/bin/"
+          cp -R config docs LICENSE README.md "$package_dir/"
+
+          archive="dist/webos-network-storage-${package_version}-armv7.tar.gz"
+          tar -czf "$archive" -C build webos-network-storage
+          sha256sum "$archive" > "$archive.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
           name: webos-network-storage-armv7
           path: |
-            bin/webos-network-storage
-            dist/rclone-smb
+            dist/webos-network-storage-*.tar.gz
+            dist/webos-network-storage-*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webos-network-storage-armv7
+          path: release
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: >-
+          gh release create "$VERSION"
+          release/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "$VERSION"
+          --generate-notes

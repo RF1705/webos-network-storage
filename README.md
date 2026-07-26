@@ -98,3 +98,10 @@ CIFS filesystem or `mount.cifs`. SMB therefore uses the TV's existing FUSE
 support and a reduced rclone binary.
 
 No TV filesystem changes are part of this repository's first commit.
+
+## Builds and releases
+
+Every push to `main` and every manual run of the `Build` workflow creates a
+downloadable ARMv7 artifact. To publish a GitHub release, start the workflow
+manually and enter a version such as `v0.1.0`. If the version field is left
+empty, only the artifact is generated.

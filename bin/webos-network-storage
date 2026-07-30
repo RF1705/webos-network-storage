@@ -198,7 +198,12 @@ is_mounted() {
 	if command -v mountpoint >/dev/null 2>&1; then
 		mountpoint -q "$path"
 	else
-		awk -v target="$path" '$2 == target { found=1 } END { exit !found }' /proc/mounts
+		[ -d "$path" ] || return 1
+		parent=${path%/*}
+		[ -n "$parent" ] || parent=/
+		path_device=$(stat -c '%d' "$path" 2>/dev/null) || return 1
+		parent_device=$(stat -c '%d' "$parent" 2>/dev/null) || return 1
+		[ "$path_device" != "$parent_device" ]
 	fi
 }
 
@@ -275,9 +280,9 @@ expose_profile() {
 			echo "Skipping $app_id: jail does not exist" >&2
 			continue
 		fi
-		mkdir -p "$target"
-		chmod 0755 "$jail_mount_root" "$target"
 		if ! is_mounted "$target"; then
+			mkdir -p "$target"
+			chmod 0755 "$jail_mount_root" "$target"
 			"$MOUNT_BIN" --bind "$MOUNT_POINT" "$target"
 			if [ "$READ_ONLY" = true ]; then
 				"$MOUNT_BIN" -o remount,bind,ro "$target"
@@ -325,8 +330,8 @@ command_test() {
 command_mount() {
 	require_root
 	load_profile "$1"
-	prepare_mount_point
 	if ! is_mounted "$MOUNT_POINT"; then
+		prepare_mount_point
 		if [ "$PROTOCOL" = smb ]; then mount_smb; else mount_nfs; fi
 	fi
 	expose_profile

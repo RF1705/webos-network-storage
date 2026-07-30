@@ -11,9 +11,29 @@ CREDENTIAL_DIR=$STATE_DIR/credentials
 TEST_BIN=$TMP_DIR/test-bin
 mkdir -p "$PROFILE_DIR" "$CREDENTIAL_DIR" "$STATE_DIR/bin" \
 	"$TMP_DIR/mounts" "$TMP_DIR/jails" "$TEST_BIN"
-for command_name in id sed wc tr stat mkdir chmod ln awk; do
+REAL_STAT=$(command -v stat)
+for command_name in id sed wc tr mkdir chmod ln awk touch rm; do
 	ln -s "$(command -v "$command_name")" "$TEST_BIN/$command_name"
 done
+cat > "$TEST_BIN/stat" <<EOF
+#!/bin/sh
+if [ "\${1-}" = -c ] && [ "\${2-}" = %d ]; then
+	case \${3-} in
+		"$TMP_DIR/mounts/fritz-games")
+			if [ -f "$TMP_DIR/root-mounted" ]; then echo 9001; exit 0; fi
+			;;
+		"$TMP_DIR/jails/org.scummvm.scummvm$TMP_DIR/mounts/fritz-games")
+			if [ -f "$TMP_DIR/jail-mounted" ] &&
+				[ ! -f "$TMP_DIR/jail-recreated" ]; then
+				echo 9001
+				exit 0
+			fi
+			;;
+	esac
+fi
+exec "$REAL_STAT" "\$@"
+EOF
+chmod 0755 "$TEST_BIN/stat"
 
 HELPER=$ROOT/bin/webos-network-storage
 
@@ -97,11 +117,16 @@ EOF
 cat > "$STATE_DIR/bin/rclone-smb" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >> "$TMP_DIR/rclone-args"
+touch "$TMP_DIR/root-mounted"
 exit 0
 EOF
 cat > "$TEST_BIN/mount" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >> "$TMP_DIR/mount-args"
+if [ "\${1-}" = --bind ]; then
+	touch "$TMP_DIR/jail-mounted"
+	rm -f "$TMP_DIR/jail-recreated"
+fi
 exit 0
 EOF
 cat > "$TEST_BIN/umount" <<'EOF'
@@ -125,5 +150,14 @@ test "$(stat -c '%a' "$TMP_DIR/mounts/fritz-games")" = 755
 JAIL_MOUNT_ROOT=$TMP_DIR/jails/org.scummvm.scummvm$TMP_DIR/mounts
 test "$(stat -c '%a' "$JAIL_MOUNT_ROOT")" = 755
 test "$(stat -c '%a' "$JAIL_MOUNT_ROOT/fritz-games")" = 755
+
+touch "$TMP_DIR/jail-recreated"
+PATH=$TEST_BIN \
+WNS_RCLONE_BIN=$STATE_DIR/bin/rclone-smb \
+WNS_MOUNT_BIN=$TEST_BIN/mount \
+WNS_UMOUNT_BIN=$TEST_BIN/umount \
+run_helper mount fritz | grep -q "is mounted"
+test "$(wc -l < "$TMP_DIR/rclone-args" | tr -d ' ')" = 1
+test "$(grep -c '^--bind ' "$TMP_DIR/mount-args")" = 2
 
 echo "All helper tests passed."

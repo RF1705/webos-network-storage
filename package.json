@@ -1,6 +1,6 @@
 {
   "name": "webos-network-storage",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "SMB and NFS mounts for homebrew applications on LG webOS TVs",
   "scripts": {

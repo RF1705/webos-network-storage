@@ -195,16 +195,12 @@ load_credentials() {
 
 is_mounted() {
 	path=$1
-	if command -v mountpoint >/dev/null 2>&1; then
-		mountpoint -q "$path"
-	else
-		[ -d "$path" ] || return 1
-		parent=${path%/*}
-		[ -n "$parent" ] || parent=/
-		path_device=$(stat -c '%d' "$path" 2>/dev/null) || return 1
-		parent_device=$(stat -c '%d' "$parent" 2>/dev/null) || return 1
-		[ "$path_device" != "$parent_device" ]
-	fi
+	[ -d "$path" ] || return 1
+	parent=${path%/*}
+	[ -n "$parent" ] || parent=/
+	path_device=$(stat -c '%d' "$path" 2>/dev/null) || return 1
+	parent_device=$(stat -c '%d' "$parent" 2>/dev/null) || return 1
+	[ "$path_device" != "$parent_device" ]
 }
 
 ensure_fusermount3() {

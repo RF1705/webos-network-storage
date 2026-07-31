@@ -34,6 +34,12 @@ fi
 exec "$REAL_STAT" "\$@"
 EOF
 chmod 0755 "$TEST_BIN/stat"
+cat > "$TEST_BIN/mountpoint" <<'EOF'
+#!/bin/sh
+# webOS can report a hidden mount from an older app-jail tree as active.
+exit 0
+EOF
+chmod 0755 "$TEST_BIN/mountpoint"
 
 HELPER=$ROOT/bin/webos-network-storage
 

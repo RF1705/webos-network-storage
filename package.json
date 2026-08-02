@@ -4,7 +4,7 @@
   "private": true,
   "description": "SMB and NFS mounts for homebrew applications on LG webOS TVs",
   "scripts": {
-    "test": "tests/run.sh && tests/cache-mode.test.sh && node tests/profile-store.test.js",
+    "test": "tests/run.sh && sh tests/cache-mode.test.sh && node tests/profile-store.test.js",
     "icons": "node tools/make-icons.js",
     "package:ipk": "ares-package app service -o dist"
   },

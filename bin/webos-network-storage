@@ -35,15 +35,12 @@ fi
 PROFILE_DIR=$STATE_DIR/profiles
 CREDENTIAL_DIR=$STATE_DIR/credentials
 RUNTIME_DIR=$STATE_DIR/runtime
+CACHE_ROOT=$STATE_DIR/cache
 RCLONE_BIN_DIR=${RCLONE_BIN%/*}
 PATH=$RCLONE_BIN_DIR:$PATH
 export PATH
 
-fail() {
-	echo "$PROGRAM: $*" >&2
-	exit 1
-}
-
+fail() { echo "$PROGRAM: $*" >&2; exit 1; }
 usage() {
 	cat >&2 <<EOF
 Usage:
@@ -53,98 +50,53 @@ Usage:
   $PROGRAM unmount PROFILE
   $PROGRAM status PROFILE
   $PROGRAM expose PROFILE
+  $PROGRAM clear-cache PROFILE
   $PROGRAM list-apps
   $PROGRAM autostart
   $PROGRAM supervise
 EOF
 	exit 2
 }
-
 require_root() {
-	[ "$(id -u)" -eq 0 ] || [ "${WNS_ALLOW_UNPRIVILEGED:-false}" = true ] ||
-		fail "this command must run as root"
+	[ "$(id -u)" -eq 0 ] || [ "${WNS_ALLOW_UNPRIVILEGED:-false}" = true ] || fail "this command must run as root"
 }
-
 validate_profile_id() {
-	case ${1-} in
-		[a-z0-9]*)
-			case $1 in *[!a-z0-9_-]*) return 1 ;; esac
-			;;
-		*) return 1 ;;
-	esac
+	case ${1-} in [a-z0-9]*) case $1 in *[!a-z0-9_-]*) return 1 ;; esac ;; *) return 1 ;; esac
 	[ "${#1}" -le 48 ]
 }
-
-value_of() {
-	key=$1
-	file=$2
-	sed -n "s/^${key}=//p" "$file" | sed -n '1p'
-}
-
+value_of() { sed -n "s/^${1}=//p" "$2" | sed -n '1p'; }
 validate_file_shape() {
-	file=$1
-	allowed_keys=$2
+	file=$1; allowed_keys=$2
 	[ -f "$file" ] || fail "missing configuration file: $file"
-
 	while IFS= read -r line || [ -n "$line" ]; do
-		case $line in
-			''|\#*) continue ;;
-			*=*) key=${line%%=*} ;;
-			*) fail "invalid line in $file" ;;
-		esac
-		case " $allowed_keys " in
-			*" $key "*) ;;
-			*) fail "unknown key '$key' in $file" ;;
-		esac
+		case $line in ''|\#*) continue ;; *=*) key=${line%%=*} ;; *) fail "invalid line in $file" ;; esac
+		case " $allowed_keys " in *" $key "*) ;; *) fail "unknown key '$key' in $file" ;; esac
 		count=$(sed -n "/^${key}=/p" "$file" | wc -l | tr -d ' ')
 		[ "$count" -eq 1 ] || fail "duplicate key '$key' in $file"
 	done < "$file"
 }
-
 require_mode_0600() {
 	file=$1
 	[ "${WNS_SKIP_PERMISSION_CHECK:-false}" = true ] && return 0
-	mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null) ||
-		fail "cannot read permissions for $file"
+	mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null) || fail "cannot read permissions for $file"
 	[ "$mode" = 600 ] || fail "$file must have mode 0600 (current: $mode)"
 	if [ "$(id -u)" -eq 0 ] && [ "${WNS_TEST_MODE:-false}" != true ]; then
-		owner=$(stat -c '%u' "$file" 2>/dev/null) ||
-			fail "cannot read ownership for $file"
+		owner=$(stat -c '%u' "$file" 2>/dev/null) || fail "cannot read ownership for $file"
 		[ "$owner" = 0 ] || fail "$file must be owned by root"
 	fi
 }
-
-is_boolean() {
-	[ "$1" = true ] || [ "$1" = false ]
-}
-
-is_safe_server() {
-	case $1 in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac
-}
-
-is_safe_path() {
-	case $1 in ''|*[!A-Za-z0-9._/\ -]*) return 1 ;; esac
-	case $1 in *..*) return 1 ;; esac
-}
-
-is_safe_mount_name() {
-	case $1 in ''|*[!a-zA-Z0-9_-]*) return 1 ;; esac
-}
-
-is_safe_app_id() {
-	case $1 in
-		''|*[!A-Za-z0-9._-]*|.*|*..*|*.) return 1 ;;
-	esac
-}
+is_boolean() { [ "$1" = true ] || [ "$1" = false ]; }
+is_safe_server() { case $1 in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac; }
+is_safe_path() { case $1 in ''|*[!A-Za-z0-9._/\ -]*) return 1 ;; esac; case $1 in *..*) return 1 ;; esac; }
+is_safe_mount_name() { case $1 in ''|*[!a-zA-Z0-9_-]*) return 1 ;; esac; }
+is_safe_app_id() { case $1 in ''|*[!A-Za-z0-9._-]*|.*|*..*|*.) return 1 ;; esac; }
 
 load_profile() {
 	PROFILE_ID=$1
 	validate_profile_id "$PROFILE_ID" || fail "invalid profile ID: $PROFILE_ID"
 	PROFILE_FILE=$PROFILE_DIR/$PROFILE_ID.conf
-	validate_file_shape "$PROFILE_FILE" \
-		"DISPLAY_NAME PROTOCOL SERVER REMOTE_PATH MOUNT_NAME READ_ONLY AUTO_CONNECT APP_IDS NFS_VERSION"
+	validate_file_shape "$PROFILE_FILE" "DISPLAY_NAME PROTOCOL SERVER REMOTE_PATH MOUNT_NAME READ_ONLY AUTO_CONNECT APP_IDS NFS_VERSION CACHE_MODE"
 	require_mode_0600 "$PROFILE_FILE"
-
 	PROTOCOL=$(value_of PROTOCOL "$PROFILE_FILE")
 	DISPLAY_NAME=$(value_of DISPLAY_NAME "$PROFILE_FILE")
 	SERVER=$(value_of SERVER "$PROFILE_FILE")
@@ -154,8 +106,11 @@ load_profile() {
 	AUTO_CONNECT=$(value_of AUTO_CONNECT "$PROFILE_FILE")
 	APP_IDS=$(value_of APP_IDS "$PROFILE_FILE")
 	NFS_VERSION=$(value_of NFS_VERSION "$PROFILE_FILE")
-
+	CACHE_MODE=$(value_of CACHE_MODE "$PROFILE_FILE")
+	CACHE_MODE=${CACHE_MODE:-off}
 	case $PROTOCOL in smb|nfs) ;; *) fail "PROTOCOL must be smb or nfs" ;; esac
+	case $CACHE_MODE in off|balanced|performance) ;; *) fail "CACHE_MODE must be off, balanced or performance" ;; esac
+	[ "$PROTOCOL" = smb ] || [ "$CACHE_MODE" = off ] || fail "CACHE_MODE is only supported for SMB profiles"
 	[ "${#DISPLAY_NAME}" -le 60 ] || fail "DISPLAY_NAME is too long"
 	is_safe_server "$SERVER" || fail "invalid SERVER"
 	is_safe_path "$REMOTE_PATH" || fail "invalid REMOTE_PATH"
@@ -163,26 +118,19 @@ load_profile() {
 	is_boolean "$READ_ONLY" || fail "READ_ONLY must be true or false"
 	is_boolean "$AUTO_CONNECT" || fail "AUTO_CONNECT must be true or false"
 	case $APP_IDS in *[!A-Za-z0-9._\ -]*) fail "invalid APP_IDS" ;; esac
-
-	for app_id in $APP_IDS; do
-		is_safe_app_id "$app_id" || fail "invalid application ID: $app_id"
-	done
-
+	for app_id in $APP_IDS; do is_safe_app_id "$app_id" || fail "invalid application ID: $app_id"; done
 	if [ "$PROTOCOL" = nfs ]; then
 		case $REMOTE_PATH in /*) ;; *) fail "an NFS REMOTE_PATH must start with /" ;; esac
 		case ${NFS_VERSION:-3} in 3|4) ;; *) fail "NFS_VERSION must be 3 or 4" ;; esac
-	elif [ -n "$NFS_VERSION" ]; then
-		fail "NFS_VERSION is only valid for NFS profiles"
-	fi
-
+	elif [ -n "$NFS_VERSION" ]; then fail "NFS_VERSION is only valid for NFS profiles"; fi
 	MOUNT_POINT=$MOUNT_ROOT/$MOUNT_NAME
+	CACHE_DIR=$CACHE_ROOT/$PROFILE_ID
 }
 
 load_credentials() {
 	CREDENTIAL_FILE=$CREDENTIAL_DIR/$PROFILE_ID.conf
 	validate_file_shape "$CREDENTIAL_FILE" "USERNAME PASSWORD_OBSCURED DOMAIN"
 	require_mode_0600 "$CREDENTIAL_FILE"
-
 	USERNAME=$(value_of USERNAME "$CREDENTIAL_FILE")
 	PASSWORD_OBSCURED=$(value_of PASSWORD_OBSCURED "$CREDENTIAL_FILE")
 	DOMAIN=$(value_of DOMAIN "$CREDENTIAL_FILE")
@@ -192,239 +140,102 @@ load_credentials() {
 	case $PASSWORD_OBSCURED in *[!A-Za-z0-9_+/=-]*) fail "invalid PASSWORD_OBSCURED" ;; esac
 	case $DOMAIN in ''|*[!A-Za-z0-9._-]*) fail "invalid DOMAIN" ;; esac
 }
-
 is_mounted() {
-	path=$1
-	[ -d "$path" ] || return 1
-	parent=${path%/*}
-	[ -n "$parent" ] || parent=/
+	path=$1; [ -d "$path" ] || return 1; parent=${path%/*}; [ -n "$parent" ] || parent=/
 	path_device=$(stat -c '%d' "$path" 2>/dev/null) || return 1
 	parent_device=$(stat -c '%d' "$parent" 2>/dev/null) || return 1
 	[ "$path_device" != "$parent_device" ]
 }
-
 ensure_fusermount3() {
-	if command -v fusermount3 >/dev/null 2>&1; then
-		return 0
-	fi
-
+	command -v fusermount3 >/dev/null 2>&1 && return 0
 	fusermount_bin=$(command -v fusermount 2>/dev/null || true)
-	[ -n "$fusermount_bin" ] ||
-		fail "neither fusermount3 nor fusermount is available"
-	mkdir -p "$RCLONE_BIN_DIR"
-	ln -sf "$fusermount_bin" "$RCLONE_BIN_DIR/fusermount3"
+	[ -n "$fusermount_bin" ] || fail "neither fusermount3 nor fusermount is available"
+	mkdir -p "$RCLONE_BIN_DIR"; ln -sf "$fusermount_bin" "$RCLONE_BIN_DIR/fusermount3"
 }
-
-prepare_mount_point() {
-	mkdir -p "$MOUNT_ROOT" "$MOUNT_POINT"
-	chmod 0755 "$MOUNT_ROOT" "$MOUNT_POINT"
-}
-
+prepare_mount_point() { mkdir -p "$MOUNT_ROOT" "$MOUNT_POINT"; chmod 0755 "$MOUNT_ROOT" "$MOUNT_POINT"; }
 write_rclone_config() {
-	load_credentials
-	mkdir -p "$RUNTIME_DIR"
-	RCLONE_CONFIG=$RUNTIME_DIR/$PROFILE_ID-rclone.conf
-	umask 077
-	{
-		echo '[storage]'
-		echo 'type = smb'
-		printf 'host = %s\n' "$SERVER"
-		printf 'user = %s\n' "$USERNAME"
-		printf 'pass = %s\n' "$PASSWORD_OBSCURED"
-		[ -z "$DOMAIN" ] || printf 'domain = %s\n' "$DOMAIN"
-	} > "$RCLONE_CONFIG"
+	load_credentials; mkdir -p "$RUNTIME_DIR"; RCLONE_CONFIG=$RUNTIME_DIR/$PROFILE_ID-rclone.conf; umask 077
+	{ echo '[storage]'; echo 'type = smb'; printf 'host = %s\n' "$SERVER"; printf 'user = %s\n' "$USERNAME"; printf 'pass = %s\n' "$PASSWORD_OBSCURED"; [ -z "$DOMAIN" ] || printf 'domain = %s\n' "$DOMAIN"; } > "$RCLONE_CONFIG"
 	chmod 0600 "$RCLONE_CONFIG"
 }
 
 mount_smb() {
 	[ -x "$RCLONE_BIN" ] || fail "SMB helper is not executable: $RCLONE_BIN"
-	ensure_fusermount3
-	write_rclone_config
-	dir_perms=0555
-	file_perms=0444
-	if [ "$READ_ONLY" = false ]; then
-		dir_perms=0777
-		file_perms=0666
-	fi
-	set -- mount "storage:$REMOTE_PATH" "$MOUNT_POINT" \
-		--config "$RCLONE_CONFIG" \
-		--daemon --daemon-wait 20s --allow-other \
-		--uid 0 --gid 0 --umask 000 \
-		--dir-perms "$dir_perms" --file-perms "$file_perms" \
-		--buffer-size 4M --vfs-cache-mode off \
-		--vfs-read-chunk-size 4M --vfs-read-chunk-size-limit 32M \
-		--dir-cache-time 1m --poll-interval 0 \
-		--log-file "$RUNTIME_DIR/$PROFILE_ID.log" --log-level INFO
+	ensure_fusermount3; write_rclone_config
+	dir_perms=0555; file_perms=0444
+	if [ "$READ_ONLY" = false ]; then dir_perms=0777; file_perms=0666; fi
+	set -- mount "storage:$REMOTE_PATH" "$MOUNT_POINT" --config "$RCLONE_CONFIG" --daemon --daemon-wait 20s --allow-other --uid 0 --gid 0 --umask 000 --dir-perms "$dir_perms" --file-perms "$file_perms" --dir-cache-time 1m --poll-interval 0 --log-file "$RUNTIME_DIR/$PROFILE_ID.log" --log-level INFO
+	case $CACHE_MODE in
+		off)
+			set -- "$@" --buffer-size 4M --vfs-cache-mode off --vfs-read-chunk-size 4M --vfs-read-chunk-size-limit 32M
+			;;
+		balanced)
+			mkdir -p "$CACHE_DIR"; chmod 0700 "$CACHE_ROOT" "$CACHE_DIR"
+			set -- "$@" --buffer-size 8M --vfs-cache-mode full --cache-dir "$CACHE_DIR" --vfs-read-ahead 32M --vfs-cache-max-size 256M --vfs-cache-max-age 6h --vfs-read-chunk-size 8M --vfs-read-chunk-size-limit 64M
+			;;
+		performance)
+			mkdir -p "$CACHE_DIR"; chmod 0700 "$CACHE_ROOT" "$CACHE_DIR"
+			set -- "$@" --buffer-size 16M --vfs-cache-mode full --cache-dir "$CACHE_DIR" --vfs-read-ahead 64M --vfs-cache-max-size 1G --vfs-cache-max-age 24h --vfs-read-chunk-size 16M --vfs-read-chunk-size-limit 128M
+			;;
+	esac
 	[ "$READ_ONLY" = false ] || set -- "$@" --read-only
 	"$RCLONE_BIN" "$@"
 }
-
 mount_nfs() {
-	nfs_version=${NFS_VERSION:-3}
-	access=ro
-	[ "$READ_ONLY" = true ] || access=rw
-	options=$access,tcp,nolock,vers=$nfs_version,timeo=20,retrans=2
-	"$MOUNT_BIN" -t nfs -o "$options" "$SERVER:$REMOTE_PATH" "$MOUNT_POINT"
+	nfs_version=${NFS_VERSION:-3}; access=ro; [ "$READ_ONLY" = true ] || access=rw
+	"$MOUNT_BIN" -t nfs -o "$access,tcp,nolock,vers=$nfs_version,timeo=20,retrans=2" "$SERVER:$REMOTE_PATH" "$MOUNT_POINT"
 }
-
 expose_profile() {
 	for app_id in $APP_IDS; do
-		jail=$JAIL_ROOT/$app_id
-		jail_mount_root=$jail$MOUNT_ROOT
-		target=$jail_mount_root/$MOUNT_NAME
-		if [ ! -d "$jail" ]; then
-			echo "Skipping $app_id: jail does not exist" >&2
-			continue
-		fi
+		jail=$JAIL_ROOT/$app_id; jail_mount_root=$jail$MOUNT_ROOT; target=$jail_mount_root/$MOUNT_NAME
+		if [ ! -d "$jail" ]; then echo "Skipping $app_id: jail does not exist" >&2; continue; fi
 		if ! is_mounted "$target"; then
-			mkdir -p "$target"
-			chmod 0755 "$jail_mount_root" "$target"
-			"$MOUNT_BIN" --bind "$MOUNT_POINT" "$target"
-			if [ "$READ_ONLY" = true ]; then
-				"$MOUNT_BIN" -o remount,bind,ro "$target"
-			fi
+			mkdir -p "$target"; chmod 0755 "$jail_mount_root" "$target"; "$MOUNT_BIN" --bind "$MOUNT_POINT" "$target"
+			[ "$READ_ONLY" = false ] || "$MOUNT_BIN" -o remount,bind,ro "$target"
 		fi
 	done
 }
-
-unexpose_profile() {
-	for app_id in $APP_IDS; do
-		target=$JAIL_ROOT/$app_id$MOUNT_POINT
-		if is_mounted "$target"; then
-			"$UMOUNT_BIN" "$target"
-		fi
-	done
-}
-
-command_validate() {
-	load_profile "$1"
-	[ "$PROTOCOL" != smb ] || load_credentials
-	echo "Profile '$PROFILE_ID' is valid."
-}
-
+unexpose_profile() { for app_id in $APP_IDS; do target=$JAIL_ROOT/$app_id$MOUNT_POINT; is_mounted "$target" && "$UMOUNT_BIN" "$target"; done; }
+command_validate() { load_profile "$1"; [ "$PROTOCOL" != smb ] || load_credentials; echo "Profile '$PROFILE_ID' is valid."; }
 command_test() {
-	require_root
-	load_profile "$1"
+	require_root; load_profile "$1"
 	if [ "$PROTOCOL" = smb ]; then
-		[ -x "$RCLONE_BIN" ] || fail "SMB helper is not executable: $RCLONE_BIN"
-		write_rclone_config
-		"$RCLONE_BIN" lsd "storage:$REMOTE_PATH" \
-			--config "$RCLONE_CONFIG" --max-depth 1 >/dev/null
+		[ -x "$RCLONE_BIN" ] || fail "SMB helper is not executable: $RCLONE_BIN"; write_rclone_config
+		"$RCLONE_BIN" lsd "storage:$REMOTE_PATH" --config "$RCLONE_CONFIG" --max-depth 1 >/dev/null
 	else
-		test_mount=$RUNTIME_DIR/test-$PROFILE_ID
-		mkdir -p "$test_mount"
-		nfs_version=${NFS_VERSION:-3}
-		"$MOUNT_BIN" -t nfs \
-			-o "ro,tcp,nolock,vers=$nfs_version,timeo=20,retrans=2" \
-			"$SERVER:$REMOTE_PATH" "$test_mount"
-		"$UMOUNT_BIN" "$test_mount"
-		rmdir "$test_mount"
+		test_mount=$RUNTIME_DIR/test-$PROFILE_ID; mkdir -p "$test_mount"; nfs_version=${NFS_VERSION:-3}
+		"$MOUNT_BIN" -t nfs -o "ro,tcp,nolock,vers=$nfs_version,timeo=20,retrans=2" "$SERVER:$REMOTE_PATH" "$test_mount"
+		"$UMOUNT_BIN" "$test_mount"; rmdir "$test_mount"
 	fi
 	echo "Connection test for '$PROFILE_ID' succeeded."
 }
-
-command_mount() {
-	require_root
-	load_profile "$1"
-	if ! is_mounted "$MOUNT_POINT"; then
-		prepare_mount_point
-		if [ "$PROTOCOL" = smb ]; then mount_smb; else mount_nfs; fi
-	fi
-	expose_profile
-	echo "Profile '$PROFILE_ID' is mounted at $MOUNT_POINT."
+command_mount() { require_root; load_profile "$1"; if ! is_mounted "$MOUNT_POINT"; then prepare_mount_point; if [ "$PROTOCOL" = smb ]; then mount_smb; else mount_nfs; fi; fi; expose_profile; echo "Profile '$PROFILE_ID' is mounted at $MOUNT_POINT."; }
+command_unmount() { require_root; load_profile "$1"; unexpose_profile; is_mounted "$MOUNT_POINT" && "$UMOUNT_BIN" "$MOUNT_POINT"; echo "Profile '$PROFILE_ID' is unmounted."; }
+command_status() { load_profile "$1"; mounted=false; is_mounted "$MOUNT_POINT" && mounted=true; printf '{"profile":"%s","protocol":"%s","mounted":%s,"mountPoint":"%s","cacheMode":"%s"}\n' "$PROFILE_ID" "$PROTOCOL" "$mounted" "$MOUNT_POINT" "$CACHE_MODE"; }
+command_clear_cache() {
+	require_root; load_profile "$1"; [ "$PROTOCOL" = smb ] || fail "cache is only available for SMB profiles"
+	is_mounted "$MOUNT_POINT" && fail "disconnect profile '$PROFILE_ID' before clearing its cache"
+	case $CACHE_DIR in "$CACHE_ROOT"/*) ;; *) fail "invalid cache directory" ;; esac
+	rm -rf "$CACHE_DIR"; echo "Cache for '$PROFILE_ID' was cleared."
 }
-
-command_unmount() {
-	require_root
-	load_profile "$1"
-	unexpose_profile
-	if is_mounted "$MOUNT_POINT"; then
-		"$UMOUNT_BIN" "$MOUNT_POINT"
-	fi
-	echo "Profile '$PROFILE_ID' is unmounted."
-}
-
-command_status() {
-	load_profile "$1"
-	mounted=false
-	is_mounted "$MOUNT_POINT" && mounted=true
-	printf '{"profile":"%s","protocol":"%s","mounted":%s,"mountPoint":"%s"}\n' \
-		"$PROFILE_ID" "$PROTOCOL" "$mounted" "$MOUNT_POINT"
-}
-
-command_expose() {
-	require_root
-	load_profile "$1"
-	is_mounted "$MOUNT_POINT" || fail "profile '$PROFILE_ID' is not mounted"
-	expose_profile
-	echo "Available jails for '$PROFILE_ID' have been updated."
-}
-
-command_list_apps() {
-	[ -d "$JAIL_ROOT" ] || return 0
-	for jail in "$JAIL_ROOT"/*; do
-		[ -d "$jail" ] || continue
-		app_id=${jail##*/}
-		if is_safe_app_id "$app_id"; then
-			echo "$app_id"
-		fi
-	done | sort
-}
-
+command_expose() { require_root; load_profile "$1"; is_mounted "$MOUNT_POINT" || fail "profile '$PROFILE_ID' is not mounted"; expose_profile; echo "Available jails for '$PROFILE_ID' have been updated."; }
+command_list_apps() { [ -d "$JAIL_ROOT" ] || return 0; for jail in "$JAIL_ROOT"/*; do [ -d "$jail" ] || continue; app_id=${jail##*/}; is_safe_app_id "$app_id" && echo "$app_id"; done | sort; }
 command_autostart() {
-	require_root
-	found=false
+	require_root; found=false
 	for profile_file in "$PROFILE_DIR"/*.conf; do
-		[ -f "$profile_file" ] || continue
-		found=true
-		profile_id=${profile_file##*/}
-		profile_id=${profile_id%.conf}
-		inhibit_file=$RUNTIME_DIR/inhibit-$profile_id
-		if [ -e "$inhibit_file" ]; then
-			inhibit_pid=$(sed -n '1p' "$inhibit_file")
-			case $inhibit_pid in
-				''|*[!0-9]*) inhibit_pid=0 ;;
-			esac
-			if [ "$inhibit_pid" -gt 1 ] && kill -0 "$inhibit_pid" 2>/dev/null; then
-				continue
-			fi
-			rm -f "$inhibit_file"
-		fi
-		load_profile "$profile_id"
-		if [ "$AUTO_CONNECT" = true ]; then
-			if ! "$0" mount "$profile_id" >/dev/null; then
-				echo "Reconnect failed for '$profile_id'." >&2
-			fi
-		fi
+		[ -f "$profile_file" ] || continue; found=true; profile_id=${profile_file##*/}; profile_id=${profile_id%.conf}; inhibit_file=$RUNTIME_DIR/inhibit-$profile_id
+		if [ -e "$inhibit_file" ]; then inhibit_pid=$(sed -n '1p' "$inhibit_file"); case $inhibit_pid in ''|*[!0-9]*) inhibit_pid=0 ;; esac; if [ "$inhibit_pid" -gt 1 ] && kill -0 "$inhibit_pid" 2>/dev/null; then continue; fi; rm -f "$inhibit_file"; fi
+		load_profile "$profile_id"; if [ "$AUTO_CONNECT" = true ]; then "$0" mount "$profile_id" >/dev/null || echo "Reconnect failed for '$profile_id'." >&2; fi
 	done
 	[ "$found" = true ] || echo "No profiles found in $PROFILE_DIR."
 }
-
-command_supervise() {
-	require_root
-	while :; do
-		command_autostart || true
-		sleep 30
-	done
-}
+command_supervise() { require_root; while :; do command_autostart || true; sleep 30; done; }
 
 command=${1-}
 case $command in
-	validate|test|mount|unmount|status|expose)
-		[ "$#" -eq 2 ] || usage
-		"command_$command" "$2"
-		;;
-	autostart)
-		[ "$#" -eq 1 ] || usage
-		command_autostart
-		;;
-	supervise)
-		[ "$#" -eq 1 ] || usage
-		command_supervise
-		;;
-	list-apps)
-		[ "$#" -eq 1 ] || usage
-		command_list_apps
-		;;
+	validate|test|mount|unmount|status|expose|clear-cache) [ "$#" -eq 2 ] || usage; "command_$(echo "$command" | tr - _ )" "$2" ;;
+	autostart) [ "$#" -eq 1 ] || usage; command_autostart ;;
+	supervise) [ "$#" -eq 1 ] || usage; command_supervise ;;
+	list-apps) [ "$#" -eq 1 ] || usage; command_list_apps ;;
 	*) usage ;;
 esac

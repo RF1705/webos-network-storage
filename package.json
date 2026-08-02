@@ -1,10 +1,10 @@
 {
   "name": "webos-network-storage",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
   "description": "SMB and NFS mounts for homebrew applications on LG webOS TVs",
   "scripts": {
-    "test": "tests/run.sh && node tests/profile-store.test.js",
+    "test": "tests/run.sh && tests/cache-mode.test.sh && node tests/profile-store.test.js",
     "icons": "node tools/make-icons.js",
     "package:ipk": "ares-package app service -o dist"
   },

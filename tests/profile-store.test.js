@@ -17,6 +17,7 @@ var smb = {
   mountName: "games",
   readOnly: true,
   autoConnect: true,
+  cacheMode: "balanced",
   apps: ["org.scummvm.scummvm"],
   username: "games",
   password: "secret",
@@ -27,6 +28,7 @@ store.save(smb, "obscured-value");
 var profiles = store.list();
 assert.strictEqual(profiles.length, 1);
 assert.strictEqual(profiles[0].displayName, "Meine Spiele");
+assert.strictEqual(profiles[0].cacheMode, "balanced");
 assert.strictEqual(profiles[0].hasCredentials, true);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(profiles[0], "password"), false);
 assert.strictEqual(fs.statSync(path.join(temp, "profiles/games.conf")).mode & 511, 384);
@@ -38,6 +40,12 @@ store.save(smb);
 assert.strictEqual(store.list()[0].displayName, "Spiele aktualisiert");
 assert.ok(fs.readFileSync(path.join(temp, "credentials/games.conf"), "utf8").indexOf("obscured-value") !== -1);
 
+assert.throws(function () {
+  store.validatePayload(Object.assign({}, smb, { cacheMode: "unlimited" }));
+}, /Cache-Modus/);
+assert.throws(function () {
+  store.validatePayload(Object.assign({}, smb, { protocol: "nfs", remotePath: "/Games", cacheMode: "balanced" }));
+}, /nur für SMB/);
 assert.throws(function () {
   store.validatePayload(Object.assign({}, smb, { remotePath: "../etc" }));
 }, /ungültig/);

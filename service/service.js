@@ -184,9 +184,15 @@ register("saveProfile", function (message) {
   }
 });
 
-["test", "mount", "unmount", "expose"].forEach(function (action) {
-  register(action, function (message) {
-    helper(action, message.payload.id, function (error, stdout, stderr) {
+[
+  { method: "test", action: "test" },
+  { method: "mount", action: "mount" },
+  { method: "unmount", action: "unmount" },
+  { method: "expose", action: "expose" },
+  { method: "clearCache", action: "clear-cache" }
+].forEach(function (entry) {
+  register(entry.method, function (message) {
+    helper(entry.action, message.payload.id, function (error, stdout, stderr) {
       if (error) { reject(message, new Error((stderr || error.message).trim())); return; }
       respond(message, { output: String(stdout || "").trim() });
     });
@@ -205,9 +211,16 @@ register("deleteProfile", function (message) {
       return;
     }
     try {
-      store.remove(id);
-      releaseInhibit(marker);
-      respond(message);
+      helper("clear-cache", id, function () {
+        try {
+          store.remove(id);
+          releaseInhibit(marker);
+          respond(message);
+        } catch (removeError) {
+          releaseInhibit(marker);
+          reject(message, removeError);
+        }
+      });
     } catch (removeError) {
       releaseInhibit(marker);
       reject(message, removeError);

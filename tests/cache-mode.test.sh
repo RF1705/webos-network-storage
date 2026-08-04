@@ -65,21 +65,14 @@ WNS_ALLOW_UNPRIVILEGED=true \
 WNS_SKIP_PERMISSION_CHECK=true \
 "$ROOT/bin/webos-network-storage" mount games >/dev/null
 
-grep -q -- '--vfs-cache-mode full' "$TMP_DIR/rclone-args"
-grep -q -- '--vfs-cache-max-size 256M' "$TMP_DIR/rclone-args"
-grep -q -- '--vfs-read-ahead 32M' "$TMP_DIR/rclone-args"
-grep -q -- "--cache-dir $STATE_DIR/cache/games" "$TMP_DIR/rclone-args"
+grep -q -- '--vfs-cache-mode off' "$TMP_DIR/rclone-args"
+grep -q -- '--buffer-size 8M' "$TMP_DIR/rclone-args"
+grep -q -- '--vfs-read-chunk-size 8M' "$TMP_DIR/rclone-args"
+grep -q -- '--vfs-read-chunk-size-limit 64M' "$TMP_DIR/rclone-args"
 
-touch "$STATE_DIR/cache/games/test-data"
-PATH=$TEST_BIN \
-WNS_STATE_DIR=$STATE_DIR \
-WNS_MOUNT_ROOT=$MOUNT_ROOT \
-WNS_JAIL_ROOT=$TMP_DIR/jails \
-WNS_RCLONE_BIN=$BIN_DIR/rclone-smb \
-WNS_TEST_MODE=true \
-WNS_ALLOW_UNPRIVILEGED=true \
-WNS_SKIP_PERMISSION_CHECK=true \
-"$ROOT/bin/webos-network-storage" clear-cache games >/dev/null
+if grep -q -- '--cache-dir\|--vfs-read-ahead\|--vfs-cache-max-size' "$TMP_DIR/rclone-args"; then
+  echo "Disk cache options must not be used" >&2
+  exit 1
+fi
 
-test ! -e "$STATE_DIR/cache/games"
-echo "All cache mode tests passed."
+echo "All SMB read buffer mode tests passed."

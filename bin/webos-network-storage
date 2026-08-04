@@ -35,7 +35,6 @@ fi
 PROFILE_DIR=$STATE_DIR/profiles
 CREDENTIAL_DIR=$STATE_DIR/credentials
 RUNTIME_DIR=$STATE_DIR/runtime
-CACHE_ROOT=$STATE_DIR/cache
 RCLONE_BIN_DIR=${RCLONE_BIN%/*}
 PATH=$RCLONE_BIN_DIR:$PATH
 export PATH
@@ -50,7 +49,6 @@ Usage:
   $PROGRAM unmount PROFILE
   $PROGRAM status PROFILE
   $PROGRAM expose PROFILE
-  $PROGRAM clear-cache PROFILE
   $PROGRAM list-apps
   $PROGRAM autostart
   $PROGRAM supervise
@@ -124,7 +122,6 @@ load_profile() {
 		case ${NFS_VERSION:-3} in 3|4) ;; *) fail "NFS_VERSION must be 3 or 4" ;; esac
 	elif [ -n "$NFS_VERSION" ]; then fail "NFS_VERSION is only valid for NFS profiles"; fi
 	MOUNT_POINT=$MOUNT_ROOT/$MOUNT_NAME
-	CACHE_DIR=$CACHE_ROOT/$PROFILE_ID
 }
 
 load_credentials() {
@@ -170,12 +167,10 @@ mount_smb() {
 			set -- "$@" --buffer-size 4M --vfs-cache-mode off --vfs-read-chunk-size 4M --vfs-read-chunk-size-limit 32M
 			;;
 		balanced)
-			mkdir -p "$CACHE_DIR"; chmod 0700 "$CACHE_ROOT" "$CACHE_DIR"
-			set -- "$@" --buffer-size 8M --vfs-cache-mode full --cache-dir "$CACHE_DIR" --vfs-read-ahead 32M --vfs-cache-max-size 256M --vfs-cache-max-age 6h --vfs-read-chunk-size 8M --vfs-read-chunk-size-limit 64M
+			set -- "$@" --buffer-size 8M --vfs-cache-mode off --vfs-read-chunk-size 8M --vfs-read-chunk-size-limit 64M
 			;;
 		performance)
-			mkdir -p "$CACHE_DIR"; chmod 0700 "$CACHE_ROOT" "$CACHE_DIR"
-			set -- "$@" --buffer-size 16M --vfs-cache-mode full --cache-dir "$CACHE_DIR" --vfs-read-ahead 64M --vfs-cache-max-size 1G --vfs-cache-max-age 24h --vfs-read-chunk-size 16M --vfs-read-chunk-size-limit 128M
+			set -- "$@" --buffer-size 16M --vfs-cache-mode off --vfs-read-chunk-size 16M --vfs-read-chunk-size-limit 128M
 			;;
 	esac
 	[ "$READ_ONLY" = false ] || set -- "$@" --read-only
@@ -212,12 +207,6 @@ command_test() {
 command_mount() { require_root; load_profile "$1"; if ! is_mounted "$MOUNT_POINT"; then prepare_mount_point; if [ "$PROTOCOL" = smb ]; then mount_smb; else mount_nfs; fi; fi; expose_profile; echo "Profile '$PROFILE_ID' is mounted at $MOUNT_POINT."; }
 command_unmount() { require_root; load_profile "$1"; unexpose_profile; is_mounted "$MOUNT_POINT" && "$UMOUNT_BIN" "$MOUNT_POINT"; echo "Profile '$PROFILE_ID' is unmounted."; }
 command_status() { load_profile "$1"; mounted=false; is_mounted "$MOUNT_POINT" && mounted=true; printf '{"profile":"%s","protocol":"%s","mounted":%s,"mountPoint":"%s","cacheMode":"%s"}\n' "$PROFILE_ID" "$PROTOCOL" "$mounted" "$MOUNT_POINT" "$CACHE_MODE"; }
-command_clear_cache() {
-	require_root; load_profile "$1"; [ "$PROTOCOL" = smb ] || fail "cache is only available for SMB profiles"
-	is_mounted "$MOUNT_POINT" && fail "disconnect profile '$PROFILE_ID' before clearing its cache"
-	case $CACHE_DIR in "$CACHE_ROOT"/*) ;; *) fail "invalid cache directory" ;; esac
-	rm -rf "$CACHE_DIR"; echo "Cache for '$PROFILE_ID' was cleared."
-}
 command_expose() { require_root; load_profile "$1"; is_mounted "$MOUNT_POINT" || fail "profile '$PROFILE_ID' is not mounted"; expose_profile; echo "Available jails for '$PROFILE_ID' have been updated."; }
 command_list_apps() { [ -d "$JAIL_ROOT" ] || return 0; for jail in "$JAIL_ROOT"/*; do [ -d "$jail" ] || continue; app_id=${jail##*/}; is_safe_app_id "$app_id" && echo "$app_id"; done | sort; }
 command_autostart() {
@@ -233,7 +222,7 @@ command_supervise() { require_root; while :; do command_autostart || true; sleep
 
 command=${1-}
 case $command in
-	validate|test|mount|unmount|status|expose|clear-cache) [ "$#" -eq 2 ] || usage; "command_$(echo "$command" | tr - _ )" "$2" ;;
+	validate|test|mount|unmount|status|expose) [ "$#" -eq 2 ] || usage; "command_$(echo "$command" | tr - _ )" "$2" ;;
 	autostart) [ "$#" -eq 1 ] || usage; command_autostart ;;
 	supervise) [ "$#" -eq 1 ] || usage; command_supervise ;;
 	list-apps) [ "$#" -eq 1 ] || usage; command_list_apps ;;

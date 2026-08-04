@@ -1,35 +1,34 @@
-# SMB game cache
+# SMB read buffer presets
 
-SMB profiles can use a bounded rclone VFS cache to reduce loading pauses on
-high-latency storage such as FRITZ!NAS. The setting is stored as `CACHE_MODE`
-in the profile.
+SMB profiles can tune rclone's in-memory read buffer and SMB read chunk sizes.
+The setting remains stored as `CACHE_MODE` for compatibility with profiles
+created by earlier development builds.
 
-| Mode | RAM buffer per open file | Local cache limit | Read ahead | Maximum age |
-| --- | ---: | ---: | ---: | ---: |
-| `off` | 4 MB | none | none | none |
-| `balanced` | 8 MB | 256 MB | 32 MB | 6 hours |
-| `performance` | 16 MB | 1 GB | 64 MB | 24 hours |
+| Mode | RAM buffer per open file | Initial read chunk | Maximum read chunk |
+| --- | ---: | ---: | ---: |
+| `off` | 4 MB | 4 MB | 32 MB |
+| `balanced` | 8 MB | 8 MB | 64 MB |
+| `performance` | 16 MB | 16 MB | 128 MB |
+
+All three presets use:
+
+```text
+--vfs-cache-mode off
+```
+
+No game data is copied to the TV's internal storage. This avoids the additional
+flash writes and first-read stalls observed with rclone's full VFS disk cache.
+The presets only affect SMB. NFS continues to rely on the Linux page cache and
+NFS client buffering.
 
 New SMB profiles created in the TV UI default to `balanced`. Existing profiles
-without `CACHE_MODE` continue to use `off` so an upgrade does not unexpectedly
-consume internal storage.
+without `CACHE_MODE` continue to use `off`.
 
-Cached data is stored below:
+Older development versions may have left data below:
 
 ```text
 /var/lib/webosbrew/network-storage/cache/<profile-id>
 ```
 
-Each profile has a separate cache directory. The size is enforced by rclone's
-`--vfs-cache-max-size` option. Cache files are private to root and are not
-exposed inside application jails.
-
-The cache can only be cleared while the profile is disconnected. Use the TV UI
-button **Cache leeren** or run:
-
-```sh
-webos-network-storage clear-cache <profile-id>
-```
-
-The feature currently applies only to SMB. NFS continues to rely on the Linux
-page cache and NFS client buffering.
+That old cache is no longer used and can be removed after disconnecting the
+profile.

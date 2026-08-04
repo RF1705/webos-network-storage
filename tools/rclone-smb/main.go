@@ -2,7 +2,9 @@
 package main
 
 import (
+	_ "github.com/rclone/rclone/backend/local"
 	_ "github.com/rclone/rclone/backend/smb"
+	
 	"github.com/rclone/rclone/cmd"
 	_ "github.com/rclone/rclone/cmd/lsd"
 	_ "github.com/rclone/rclone/cmd/mount"

@@ -5,9 +5,10 @@ var path = require("path");
 
 var PROFILE_KEYS = [
   "DISPLAY_NAME", "PROTOCOL", "SERVER", "REMOTE_PATH", "MOUNT_NAME",
-  "READ_ONLY", "AUTO_CONNECT", "APP_IDS", "NFS_VERSION"
+  "READ_ONLY", "AUTO_CONNECT", "APP_IDS", "NFS_VERSION", "CACHE_MODE"
 ];
 var CREDENTIAL_KEYS = ["USERNAME", "PASSWORD_OBSCURED", "DOMAIN"];
+var CACHE_MODES = ["off", "balanced", "performance"];
 
 function fail(message) { throw new Error(message); }
 function validId(value) { return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,47}$/.test(value); }
@@ -29,6 +30,12 @@ function cleanDisplayName(value) {
 }
 function bool(value, name) {
   if (typeof value !== "boolean") fail(name + " muss aktiviert oder deaktiviert sein.");
+  return value;
+}
+function cacheMode(value, protocol) {
+  value = value || "off";
+  if (CACHE_MODES.indexOf(value) === -1) fail("Cache-Modus ist ungültig.");
+  if (protocol !== "smb" && value !== "off") fail("Der Spiele-Cache ist nur für SMB verfügbar.");
   return value;
 }
 function parseConfig(contents, allowed) {
@@ -94,6 +101,7 @@ Store.prototype.validatePayload = function (payload) {
     mountName: payload.mountName,
     readOnly: bool(payload.readOnly, "Nur-Lesen"),
     autoConnect: bool(payload.autoConnect, "Autostart"),
+    cacheMode: cacheMode(payload.cacheMode, payload.protocol),
     apps: payload.apps,
     nfsVersion: payload.protocol === "nfs" ? String(payload.nfsVersion || "3") : ""
   };
@@ -133,6 +141,7 @@ Store.prototype.save = function (payload, obscuredPassword) {
     MOUNT_NAME: data.mountName,
     READ_ONLY: data.readOnly ? "true" : "false",
     AUTO_CONNECT: data.autoConnect ? "true" : "false",
+    CACHE_MODE: data.cacheMode,
     APP_IDS: data.apps.join(" "),
     NFS_VERSION: data.nfsVersion
   };
@@ -166,6 +175,7 @@ Store.prototype.list = function () {
         mountPoint: "/media/developer/network-storage/" + profile.MOUNT_NAME,
         readOnly: profile.READ_ONLY !== "false",
         autoConnect: profile.AUTO_CONNECT === "true",
+        cacheMode: profile.CACHE_MODE || "off",
         apps: profile.APP_IDS ? profile.APP_IDS.split(/ +/) : [],
         nfsVersion: profile.NFS_VERSION || "3",
         username: credentials.USERNAME || "",

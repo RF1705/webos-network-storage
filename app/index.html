@@ -10,26 +10,16 @@
     <div id="app">
       <header class="topbar">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </div>
-          <div>
-            <h1>Network Storage</h1>
-            <p>Spielebibliotheken im Netzwerk</p>
-          </div>
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div><h1>Network Storage</h1><p>Spielebibliotheken im Netzwerk</p></div>
         </div>
-        <div id="serviceBadge" class="status-badge pending">
-          <i></i><span>Dienst wird geprüft</span>
-        </div>
+        <div id="serviceBadge" class="status-badge pending"><i></i><span>Dienst wird geprüft</span></div>
       </header>
 
       <main>
         <aside class="sidebar">
           <div class="section-title">
-            <div>
-              <span>FREIGABEN</span>
-              <strong id="profileCount">0 Profile</strong>
-            </div>
+            <div><span>FREIGABEN</span><strong id="profileCount">0 Profile</strong></div>
             <button id="newProfile" class="icon-button focusable" aria-label="Neue Freigabe">+</button>
           </div>
           <div id="profileList" class="profile-list"></div>
@@ -42,48 +32,29 @@
         <section class="content">
           <div id="setupPanel" class="setup-panel hidden">
             <div class="setup-icon">⚙</div>
-            <div>
-              <h2>Systemdienst einrichten</h2>
-              <p>Für Netzwerk-Mounts benötigt die App einmalig Root-Zugriff über den Homebrew Channel.</p>
-            </div>
+            <div><h2>Systemdienst einrichten</h2><p>Für Netzwerk-Mounts benötigt die App einmalig Root-Zugriff über den Homebrew Channel.</p></div>
             <button id="setupService" class="button primary focusable">Jetzt einrichten</button>
           </div>
 
           <form id="profileForm" autocomplete="off">
             <div class="content-heading">
-              <div>
-                <span id="formEyebrow">NEUES PROFIL</span>
-                <h2 id="formTitle">Freigabe konfigurieren</h2>
-              </div>
+              <div><span id="formEyebrow">NEUES PROFIL</span><h2 id="formTitle">Freigabe konfigurieren</h2></div>
               <div id="mountStatus" class="mount-state offline"><i></i><span>Nicht verbunden</span></div>
             </div>
 
             <div class="form-grid">
-              <label class="field full">
-                <span>Name</span>
-                <input id="displayName" class="focusable" maxlength="60" placeholder="Meine Spiele" required>
-              </label>
+              <label class="field full"><span>Name</span><input id="displayName" class="focusable" maxlength="60" placeholder="Meine Spiele" required></label>
 
               <fieldset class="protocol-field full">
                 <legend>Protokoll</legend>
                 <div class="segmented">
-                  <button type="button" data-protocol="smb" class="segment active focusable">
-                    <strong>SMB</strong><small>Windows / FRITZ!NAS</small>
-                  </button>
-                  <button type="button" data-protocol="nfs" class="segment focusable">
-                    <strong>NFS</strong><small>Linux / NAS</small>
-                  </button>
+                  <button type="button" data-protocol="smb" class="segment active focusable"><strong>SMB</strong><small>Windows / FRITZ!NAS</small></button>
+                  <button type="button" data-protocol="nfs" class="segment focusable"><strong>NFS</strong><small>Linux / NAS</small></button>
                 </div>
               </fieldset>
 
-              <label class="field">
-                <span>Server</span>
-                <input id="server" class="focusable" placeholder="192.168.1.1 oder nas.local" required>
-              </label>
-              <label class="field">
-                <span id="remotePathLabel">Freigabe / Remote-Pfad</span>
-                <input id="remotePath" class="focusable" placeholder="Games" required>
-              </label>
+              <label class="field"><span>Server</span><input id="server" class="focusable" placeholder="192.168.1.1 oder nas.local" required></label>
+              <label class="field"><span id="remotePathLabel">Freigabe / Remote-Pfad</span><input id="remotePath" class="focusable" placeholder="Games" required></label>
 
               <label class="field">
                 <span>Lokaler Mountname</span>
@@ -92,17 +63,11 @@
               </label>
               <label id="nfsVersionField" class="field hidden">
                 <span>NFS-Version</span>
-                <select id="nfsVersion" class="focusable">
-                  <option value="3">NFS 3</option>
-                  <option value="4">NFS 4</option>
-                </select>
+                <select id="nfsVersion" class="focusable"><option value="3">NFS 3</option><option value="4">NFS 4</option></select>
               </label>
 
               <div id="smbFields" class="subgrid full">
-                <label class="field">
-                  <span>Benutzer</span>
-                  <input id="username" class="focusable" autocomplete="off" placeholder="network-user">
-                </label>
+                <label class="field"><span>Benutzer</span><input id="username" class="focusable" autocomplete="off" placeholder="network-user"></label>
                 <label class="field">
                   <span>Passwort</span>
                   <div class="password-wrap">
@@ -111,34 +76,36 @@
                   </div>
                   <small>Wird lokal verschleiert und mit Dateirechten 0600 gespeichert.</small>
                 </label>
-                <label class="field">
-                  <span>Domäne</span>
-                  <input id="domain" class="focusable" placeholder="WORKGROUP">
+                <label class="field"><span>Domäne</span><input id="domain" class="focusable" placeholder="WORKGROUP"></label>
+                <label id="cacheModeField" class="field">
+                  <span>SMB-Lesepuffer</span>
+                  <select id="cacheMode" class="focusable">
+                    <option value="off">Klein – 4 MB Puffer</option>
+                    <option value="balanced">Ausgeglichen – 8 MB Puffer</option>
+                    <option value="performance">Leistung – 16 MB Puffer</option>
+                  </select>
+                  <small>Steuert RAM-Puffer und SMB-Leseblöcke. Es werden keine Spieldaten auf dem TV gespeichert.</small>
                 </label>
               </div>
 
               <div class="options full">
                 <label class="switch-row focusable" tabindex="0">
                   <div><strong>Nur lesen</strong><small>Schützt die Spielebibliothek vor Änderungen</small></div>
-                  <input id="readOnly" type="checkbox" checked>
-                  <span class="switch"></span>
+                  <input id="readOnly" type="checkbox" checked><span class="switch"></span>
                 </label>
                 <label class="switch-row focusable" tabindex="0">
                   <div><strong>Automatisch verbinden</strong><small>Beim TV-Start und nach Verbindungsabbrüchen</small></div>
-                  <input id="autoConnect" type="checkbox" checked>
-                  <span class="switch"></span>
+                  <input id="autoConnect" type="checkbox" checked><span class="switch"></span>
                 </label>
               </div>
 
-              <fieldset class="apps-field full">
-                <legend>In Apps verfügbar machen</legend>
-                <div id="appChoices" class="app-choices"></div>
-              </fieldset>
+              <fieldset class="apps-field full"><legend>In Apps verfügbar machen</legend><div id="appChoices" class="app-choices"></div></fieldset>
             </div>
 
             <div class="actionbar">
               <div class="left-actions">
                 <button id="deleteProfile" type="button" class="button danger ghost focusable hidden">Löschen</button>
+                <span id="clearCache" hidden></span>
               </div>
               <div class="right-actions">
                 <button id="testProfile" type="button" class="button secondary focusable">Verbindung testen</button>

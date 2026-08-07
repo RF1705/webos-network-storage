@@ -13,11 +13,11 @@
     list: $("profileList"), count: $("profileCount"), title: $("formTitle"), eyebrow: $("formEyebrow"),
     mountStatus: $("mountStatus"), displayName: $("displayName"), server: $("server"),
     remotePath: $("remotePath"), mountName: $("mountName"), mountPath: $("mountPathPreview"),
-    username: $("username"), password: $("password"), domain: $("domain"),
+    username: $("username"), password: $("password"), domain: $("domain"), cacheMode: $("cacheMode"),
     readOnly: $("readOnly"), autoConnect: $("autoConnect"), nfsVersion: $("nfsVersion"),
     nfsVersionField: $("nfsVersionField"), smbFields: $("smbFields"), remotePathLabel: $("remotePathLabel"),
-    appChoices: $("appChoices"), deleteButton: $("deleteProfile"), mountButton: $("toggleMount"),
-    busy: $("busy"), toast: $("toast")
+    appChoices: $("appChoices"), deleteButton: $("deleteProfile"), clearCacheButton: $("clearCache"),
+    mountButton: $("toggleMount"), busy: $("busy"), toast: $("toast")
   };
 
   function call(uri, params) {
@@ -46,12 +46,10 @@
     toastTimer = setTimeout(function () { elements.toast.className = "toast"; }, 3800);
   }
   function errorText(error) { return error && error.message ? error.message : String(error); }
-
   function slug(value) {
     return value.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue")
       .replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
   }
-
   function selectedProfile() {
     for (var i = 0; i < state.profiles.length; i += 1) {
       if (state.profiles[i].id === state.selectedId) return state.profiles[i];
@@ -68,6 +66,7 @@
     elements.nfsVersionField.classList.toggle("hidden", protocol !== "nfs");
     elements.remotePathLabel.textContent = protocol === "nfs" ? "Export-Pfad" : "Freigabe / Remote-Pfad";
     elements.remotePath.placeholder = protocol === "nfs" ? "/volume1/Games" : "FRITZ.NAS/Games";
+    if (protocol !== "smb") elements.cacheMode.value = "off";
   }
 
   function renderApps(selected) {
@@ -76,25 +75,21 @@
       { id: "com.retroarch", name: "RetroArch", hint: "Libretro-Systeme" }
     ];
     (state.apps || []).forEach(function (appId) {
-      if (!known.some(function (app) { return app.id === appId; })) {
-        known.push({ id: appId, name: appId, hint: "Erkannte Homebrew-App" });
-      }
+      if (!known.some(function (app) { return app.id === appId; })) known.push({ id: appId, name: appId, hint: "Erkannte Homebrew-App" });
     });
     elements.appChoices.innerHTML = "";
     known.forEach(function (app) {
       var label = document.createElement("label");
       label.className = "app-choice focusable";
       label.tabIndex = 0;
-      label.innerHTML = '<input type="checkbox" value="' + app.id.replace(/"/g, "") + '">' +
-        '<span class="app-check"></span><span><strong></strong><small></small></span>';
+      label.innerHTML = '<input type="checkbox" value="' + app.id.replace(/"/g, "") + '"><span class="app-check"></span><span><strong></strong><small></small></span>';
       label.querySelector("strong").textContent = app.name;
       label.querySelector("small").textContent = app.hint;
       label.querySelector("input").checked = selected.indexOf(app.id) !== -1;
       label.addEventListener("keydown", function (event) {
         if (event.keyCode === 13 || event.keyCode === 32) {
           event.preventDefault();
-          var input = label.querySelector("input");
-          input.checked = !input.checked;
+          var input = label.querySelector("input"); input.checked = !input.checked;
         }
       });
       elements.appChoices.appendChild(label);
@@ -107,8 +102,7 @@
     state.profiles.forEach(function (profile) {
       var card = document.createElement("button");
       card.type = "button";
-      card.className = "profile-card focusable" + (profile.id === state.selectedId ? " active" : "") +
-        (profile.mounted ? " mounted" : "");
+      card.className = "profile-card focusable" + (profile.id === state.selectedId ? " active" : "") + (profile.mounted ? " mounted" : "");
       card.setAttribute("data-id", profile.id);
       card.innerHTML = '<span class="protocol-icon"></span><span class="profile-info"><strong></strong><small></small></span><i class="profile-dot"></i>';
       card.querySelector(".protocol-icon").textContent = profile.protocol.toUpperCase();
@@ -125,6 +119,7 @@
     elements.mountStatus.querySelector("span").textContent = mounted ? "Verbunden" : "Nicht verbunden";
     elements.mountButton.textContent = mounted ? "Trennen" : "Verbinden";
     elements.mountButton.disabled = !profile || !state.root || !state.setup;
+    elements.clearCacheButton.disabled = !profile || mounted || profile.protocol !== "smb" || (profile.cacheMode || "off") === "off";
   }
 
   function selectProfile(id) {
@@ -143,12 +138,14 @@
     elements.password.value = "";
     elements.password.placeholder = profile.hasCredentials ? "Unverändert" : "Passwort eingeben";
     elements.domain.value = profile.domain || "";
+    elements.cacheMode.value = profile.cacheMode || "off";
     elements.readOnly.checked = profile.readOnly;
     elements.autoConnect.checked = profile.autoConnect;
     elements.nfsVersion.value = profile.nfsVersion || "3";
     setProtocol(profile.protocol);
     renderApps(profile.apps || []);
     elements.deleteButton.classList.remove("hidden");
+    elements.clearCacheButton.classList.toggle("hidden", profile.protocol !== "smb");
     updateStatus(profile);
   }
 
@@ -160,11 +157,13 @@
     elements.title.textContent = "Freigabe konfigurieren";
     elements.readOnly.checked = true;
     elements.autoConnect.checked = true;
+    elements.cacheMode.value = "balanced";
     elements.mountName.value = "";
     delete elements.mountName.dataset.touched;
     elements.mountPath.textContent = MOUNT_ROOT + "games";
     elements.password.placeholder = "Passwort eingeben";
     elements.deleteButton.classList.add("hidden");
+    elements.clearCacheButton.classList.add("hidden");
     setProtocol("smb");
     renderApps(["org.scummvm.scummvm"]);
     updateStatus(null);
@@ -198,48 +197,35 @@
   }
 
   function formPayload() {
-    var apps = Array.prototype.filter.call(elements.appChoices.querySelectorAll("input"), function (input) {
-      return input.checked;
-    }).map(function (input) { return input.value; });
+    var apps = Array.prototype.filter.call(elements.appChoices.querySelectorAll("input"), function (input) { return input.checked; })
+      .map(function (input) { return input.value; });
     var existing = selectedProfile();
     return {
       id: existing ? existing.id : slug(elements.displayName.value) || slug(elements.mountName.value),
-      displayName: elements.displayName.value.trim(),
-      protocol: state.protocol,
-      server: elements.server.value.trim(),
-      remotePath: elements.remotePath.value.trim(),
-      mountName: elements.mountName.value.trim(),
-      readOnly: elements.readOnly.checked,
-      autoConnect: elements.autoConnect.checked,
-      nfsVersion: elements.nfsVersion.value,
-      apps: apps,
-      username: elements.username.value.trim(),
-      password: elements.password.value,
-      domain: elements.domain.value.trim()
+      displayName: elements.displayName.value.trim(), protocol: state.protocol,
+      server: elements.server.value.trim(), remotePath: elements.remotePath.value.trim(),
+      mountName: elements.mountName.value.trim(), readOnly: elements.readOnly.checked,
+      autoConnect: elements.autoConnect.checked, cacheMode: state.protocol === "smb" ? elements.cacheMode.value : "off",
+      nfsVersion: elements.nfsVersion.value, apps: apps,
+      username: elements.username.value.trim(), password: elements.password.value, domain: elements.domain.value.trim()
     };
   }
 
   function perform(method, params, success, selectId) {
     busy(true);
-    return service(method, params).then(function () {
-      showToast(success);
-      return reload(selectId);
-    }).catch(function (error) {
-      showToast(errorText(error), true);
-      throw error;
-    }).finally(function () { busy(false); });
+    return service(method, params).then(function () { showToast(success); return reload(selectId); })
+      .catch(function (error) { showToast(errorText(error), true); throw error; })
+      .finally(function () { busy(false); });
   }
   function setupWithRetry(attempt) {
     return service("setup").catch(function (error) {
       if (attempt >= 5) throw error;
-      return new Promise(function (resolve) { setTimeout(resolve, 1600); })
-        .then(function () { return setupWithRetry(attempt + 1); });
+      return new Promise(function (resolve) { setTimeout(resolve, 1600); }).then(function () { return setupWithRetry(attempt + 1); });
     });
   }
 
   elements.form.addEventListener("submit", function (event) {
-    event.preventDefault();
-    var payload = formPayload();
+    event.preventDefault(); var payload = formPayload();
     perform("saveProfile", payload, "Profil wurde gespeichert.", payload.id).catch(function () {});
   });
   $("newProfile").addEventListener("click", newProfile);
@@ -262,18 +248,21 @@
     $("togglePassword").textContent = reveal ? "Verbergen" : "Anzeigen";
   });
   elements.mountButton.addEventListener("click", function () {
-    var profile = selectedProfile();
-    if (!profile) return;
+    var profile = selectedProfile(); if (!profile) return;
     var method = profile.mounted ? "unmount" : "mount";
     perform(method, { id: profile.id }, profile.mounted ? "Freigabe wurde getrennt." : "Freigabe wurde verbunden.", profile.id).catch(function () {});
   });
+  elements.clearCacheButton.addEventListener("click", function () {
+    var profile = selectedProfile();
+    if (!profile || profile.mounted) return;
+    if (!window.confirm("Zwischengespeicherte Daten für „" + (profile.displayName || profile.id) + "“ löschen?")) return;
+    perform("clearCache", { id: profile.id }, "Spiele-Cache wurde geleert.", profile.id).catch(function () {});
+  });
   $("testProfile").addEventListener("click", function () {
-    var payload = formPayload();
-    busy(true);
+    var payload = formPayload(); busy(true);
     service("saveProfile", payload).then(function () { return service("test", { id: payload.id }); })
       .then(function () { showToast("Verbindung erfolgreich getestet."); return reload(payload.id); })
-      .catch(function (error) { showToast(errorText(error), true); })
-      .finally(function () { busy(false); });
+      .catch(function (error) { showToast(errorText(error), true); }).finally(function () { busy(false); });
   });
   elements.deleteButton.addEventListener("click", function () {
     var profile = selectedProfile();
@@ -290,11 +279,7 @@
   });
   Array.prototype.forEach.call(document.querySelectorAll(".switch-row"), function (label) {
     label.addEventListener("keydown", function (event) {
-      if (event.keyCode === 13 || event.keyCode === 32) {
-        event.preventDefault();
-        var input = label.querySelector("input");
-        input.checked = !input.checked;
-      }
+      if (event.keyCode === 13 || event.keyCode === 32) { event.preventDefault(); var input = label.querySelector("input"); input.checked = !input.checked; }
     });
   });
 

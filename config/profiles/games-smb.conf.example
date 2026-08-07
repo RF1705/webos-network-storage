@@ -6,4 +6,5 @@ REMOTE_PATH=Games
 MOUNT_NAME=games
 READ_ONLY=true
 AUTO_CONNECT=true
+CACHE_MODE=balanced
 APP_IDS=org.scummvm.scummvm com.retroarch

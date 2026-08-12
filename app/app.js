@@ -6,6 +6,7 @@
   var MOUNT_ROOT = "/media/developer/network-storage/";
   var state = { root: false, setup: false, profiles: [], apps: [], selectedId: null, protocol: "smb" };
   var toastTimer;
+  var deleteConfirmTimer;
 
   var $ = function (id) { return document.getElementById(id); };
   var elements = {
@@ -50,11 +51,29 @@
     return value.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue")
       .replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
   }
+  function uniqueProfileId(base) {
+    base = slug(base) || "profile";
+    var used = {};
+    state.profiles.forEach(function (profile) { used[profile.id] = true; });
+    if (!used[base]) return base;
+    var number = 2;
+    while (true) {
+      var suffix = "-" + number;
+      var candidate = base.slice(0, 48 - suffix.length) + suffix;
+      if (!used[candidate]) return candidate;
+      number += 1;
+    }
+  }
   function selectedProfile() {
     for (var i = 0; i < state.profiles.length; i += 1) {
       if (state.profiles[i].id === state.selectedId) return state.profiles[i];
     }
     return null;
+  }
+  function resetDeleteConfirmation() {
+    clearTimeout(deleteConfirmTimer);
+    delete elements.deleteButton.dataset.confirming;
+    elements.deleteButton.textContent = "Löschen";
   }
 
   function setProtocol(protocol) {
@@ -64,9 +83,12 @@
     });
     elements.smbFields.classList.toggle("hidden", protocol !== "smb");
     elements.nfsVersionField.classList.toggle("hidden", protocol !== "nfs");
-    elements.remotePathLabel.textContent = protocol === "nfs" ? "Export-Pfad" : "Freigabe / Remote-Pfad";
-    elements.remotePath.placeholder = protocol === "nfs" ? "/volume1/Games" : "FRITZ.NAS/Games";
-    if (protocol !== "smb") elements.cacheMode.value = "off";
+    elements.remotePathLabel.textContent = protocol === "nfs" ? "NFSv4-Pfad" : "Freigabe / Remote-Pfad";
+    elements.remotePath.placeholder = protocol === "nfs" ? "/games" : "FRITZ.NAS/Games";
+    if (protocol !== "smb") {
+      elements.cacheMode.value = "off";
+      elements.nfsVersion.value = "4";
+    }
   }
 
   function renderApps(selected) {
@@ -119,10 +141,10 @@
     elements.mountStatus.querySelector("span").textContent = mounted ? "Verbunden" : "Nicht verbunden";
     elements.mountButton.textContent = mounted ? "Trennen" : "Verbinden";
     elements.mountButton.disabled = !profile || !state.root || !state.setup;
-    elements.clearCacheButton.disabled = !profile || mounted || profile.protocol !== "smb" || (profile.cacheMode || "off") === "off";
   }
 
   function selectProfile(id) {
+    resetDeleteConfirmation();
     state.selectedId = id;
     var profile = selectedProfile();
     renderProfileList();
@@ -141,15 +163,16 @@
     elements.cacheMode.value = profile.cacheMode || "off";
     elements.readOnly.checked = profile.readOnly;
     elements.autoConnect.checked = profile.autoConnect;
-    elements.nfsVersion.value = profile.nfsVersion || "3";
+    elements.nfsVersion.value = profile.nfsVersion || "4";
     setProtocol(profile.protocol);
     renderApps(profile.apps || []);
     elements.deleteButton.classList.remove("hidden");
-    elements.clearCacheButton.classList.toggle("hidden", profile.protocol !== "smb");
+    elements.clearCacheButton.classList.add("hidden");
     updateStatus(profile);
   }
 
   function newProfile() {
+    resetDeleteConfirmation();
     state.selectedId = null;
     renderProfileList();
     elements.form.reset();
@@ -158,6 +181,7 @@
     elements.readOnly.checked = true;
     elements.autoConnect.checked = true;
     elements.cacheMode.value = "balanced";
+    elements.nfsVersion.value = "4";
     elements.mountName.value = "";
     delete elements.mountName.dataset.touched;
     elements.mountPath.textContent = MOUNT_ROOT + "games";
@@ -201,12 +225,12 @@
       .map(function (input) { return input.value; });
     var existing = selectedProfile();
     return {
-      id: existing ? existing.id : slug(elements.displayName.value) || slug(elements.mountName.value),
+      id: existing ? existing.id : uniqueProfileId(elements.displayName.value || elements.mountName.value),
       displayName: elements.displayName.value.trim(), protocol: state.protocol,
       server: elements.server.value.trim(), remotePath: elements.remotePath.value.trim(),
       mountName: elements.mountName.value.trim(), readOnly: elements.readOnly.checked,
       autoConnect: elements.autoConnect.checked, cacheMode: state.protocol === "smb" ? elements.cacheMode.value : "off",
-      nfsVersion: elements.nfsVersion.value, apps: apps,
+      nfsVersion: state.protocol === "nfs" ? "4" : elements.nfsVersion.value, apps: apps,
       username: elements.username.value.trim(), password: elements.password.value, domain: elements.domain.value.trim()
     };
   }
@@ -252,12 +276,6 @@
     var method = profile.mounted ? "unmount" : "mount";
     perform(method, { id: profile.id }, profile.mounted ? "Freigabe wurde getrennt." : "Freigabe wurde verbunden.", profile.id).catch(function () {});
   });
-  elements.clearCacheButton.addEventListener("click", function () {
-    var profile = selectedProfile();
-    if (!profile || profile.mounted) return;
-    if (!window.confirm("Zwischengespeicherte Daten für „" + (profile.displayName || profile.id) + "“ löschen?")) return;
-    perform("clearCache", { id: profile.id }, "Spiele-Cache wurde geleert.", profile.id).catch(function () {});
-  });
   $("testProfile").addEventListener("click", function () {
     var payload = formPayload(); busy(true);
     service("saveProfile", payload).then(function () { return service("test", { id: payload.id }); })
@@ -266,7 +284,16 @@
   });
   elements.deleteButton.addEventListener("click", function () {
     var profile = selectedProfile();
-    if (!profile || !window.confirm("Profil „" + (profile.displayName || profile.id) + "“ wirklich löschen?")) return;
+    if (!profile) return;
+    if (elements.deleteButton.dataset.confirming !== profile.id) {
+      resetDeleteConfirmation();
+      elements.deleteButton.dataset.confirming = profile.id;
+      elements.deleteButton.textContent = "Wirklich löschen?";
+      showToast("Zum Bestätigen noch einmal „Wirklich löschen?“ drücken.");
+      deleteConfirmTimer = setTimeout(resetDeleteConfirmation, 5000);
+      return;
+    }
+    resetDeleteConfirmation();
     perform("deleteProfile", { id: profile.id }, "Profil wurde gelöscht.").then(newProfile).catch(function () {});
   });
   $("setupService").addEventListener("click", function () {

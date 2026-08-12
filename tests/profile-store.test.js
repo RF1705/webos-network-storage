@@ -40,23 +40,20 @@ store.save(smb);
 assert.strictEqual(store.list()[0].displayName, "Spiele aktualisiert");
 assert.ok(fs.readFileSync(path.join(temp, "credentials/games.conf"), "utf8").indexOf("obscured-value") !== -1);
 
-assert.throws(function () {
-  store.validatePayload(Object.assign({}, smb, { cacheMode: "unlimited" }));
-}, /Cache-Modus/);
-assert.throws(function () {
-  store.validatePayload(Object.assign({}, smb, { protocol: "nfs", remotePath: "/Games", cacheMode: "balanced" }));
-}, /nur für SMB/);
-assert.throws(function () {
-  store.validatePayload(Object.assign({}, smb, { remotePath: "../etc" }));
-}, /ungültig/);
-assert.throws(function () {
-  store.validatePayload(Object.assign({}, smb, { server: "nas;reboot" }));
-}, /ungültig/);
-assert.throws(function () {
-  store.validatePayload(Object.assign({}, smb, { apps: ["org.scummvm.scummvm;reboot"] }));
-}, /ungültig/);
+var second = Object.assign({}, smb, { id: "games-2", displayName: "Zweite Freigabe", password: "other-secret" });
+assert.throws(function () { store.save(second, "other-obscured"); }, /Mountname/);
+second.mountName = "games-2";
+store.save(second, "other-obscured");
+assert.strictEqual(store.list().length, 2);
+
+assert.throws(function () { store.validatePayload(Object.assign({}, smb, { cacheMode: "unlimited" })); }, /Cache-Modus/);
+assert.throws(function () { store.validatePayload(Object.assign({}, smb, { protocol: "nfs", remotePath: "/Games", cacheMode: "balanced" })); }, /nur für SMB/);
+assert.throws(function () { store.validatePayload(Object.assign({}, smb, { remotePath: "../etc" })); }, /ungültig/);
+assert.throws(function () { store.validatePayload(Object.assign({}, smb, { server: "nas;reboot" })); }, /ungültig/);
+assert.throws(function () { store.validatePayload(Object.assign({}, smb, { apps: ["org.scummvm.scummvm;reboot"] })); }, /ungültig/);
 
 store.remove("games");
+store.remove("games-2");
 assert.strictEqual(store.list().length, 0);
 var incomplete = Object.assign({}, smb, { id: "incomplete", password: "" });
 assert.throws(function () { store.save(incomplete); }, /Passwort fehlt/);

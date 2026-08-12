@@ -41,11 +41,11 @@ jobs:
           go-version: "1.25.x"
           cache: false
 
-      - name: Download dependencies
+      - name: Download SMB dependencies
         working-directory: tools/rclone-smb
         run: go mod tidy
 
-      - name: Build ARMv7 helper
+      - name: Build ARMv7 SMB helper
         working-directory: tools/rclone-smb
         env:
           CGO_ENABLED: "0"
@@ -56,6 +56,19 @@ jobs:
           go build -trimpath
           -ldflags="-s -w"
           -o ../../dist/rclone-smb
+          .
+
+      - name: Build ARMv7 NFSv4 helper
+        working-directory: tools/nfs-mount
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm
+          GOARM: "7"
+        run: >-
+          go build -trimpath
+          -ldflags="-s -w"
+          -o ../../dist/nfs-mount
           .
 
       - name: Resolve package version
@@ -110,6 +123,7 @@ jobs:
           mkdir -p service/bin dist
           install -m 0755 bin/webos-network-storage service/bin/
           install -m 0755 dist/rclone-smb service/bin/
+          install -m 0755 dist/nfs-mount service/bin/
           node tools/package-ipk.js app service dist
 
           ipk="dist/com.rf1705.networkstorage_${IPK_VERSION}_arm.ipk"
@@ -122,6 +136,8 @@ jobs:
             grep -qx 'Architecture: arm' control
             tar -tzf data.tar.gz |
               grep -qx 'usr/palm/services/com.rf1705.networkstorage.service/bin/rclone-smb'
+            tar -tzf data.tar.gz |
+              grep -qx 'usr/palm/services/com.rf1705.networkstorage.service/bin/nfs-mount'
           )
           rm -rf "$verify_dir"
 
@@ -129,6 +145,7 @@ jobs:
           mkdir -p "$package_dir/bin" dist
           install -m 0755 bin/webos-network-storage "$package_dir/bin/"
           install -m 0755 dist/rclone-smb "$package_dir/bin/"
+          install -m 0755 dist/nfs-mount "$package_dir/bin/"
           cp -R config docs LICENSE README.md "$package_dir/"
 
           archive="dist/webos-network-storage-${PACKAGE_VERSION}-armv7.tar.gz"

@@ -1,13 +1,13 @@
 {
   "id": "com.rf1705.networkstorage",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "vendor": "RF1705",
   "type": "web",
   "main": "index.html",
   "title": "Network Storage",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
-  "appDescription": "SMB- und NFS-Freigaben für Homebrew-Apps",
+  "appDescription": "SMB- und NFSv4-Freigaben für Homebrew-Apps",
   "resolution": "1920x1080",
   "bgColor": "#07111f",
   "iconColor": "#10233d"

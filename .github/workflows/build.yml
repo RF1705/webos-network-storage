@@ -41,6 +41,10 @@ jobs:
           go-version: "1.25.x"
           cache: false
 
+      - name: Run NFS helper tests
+        working-directory: tools/nfs-mount
+        run: go test ./...
+
       - name: Download SMB dependencies
         working-directory: tools/rclone-smb
         run: go mod tidy

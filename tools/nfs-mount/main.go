@@ -33,6 +33,14 @@ func resolveServer(server string) string {
 	return ""
 }
 
+func mountData(addr, access string) string {
+	data := "vers=4,addr=" + addr + ",proto=tcp,port=2049"
+	if access == "ro" {
+		data += ",soft,timeo=50,retrans=2"
+	}
+	return data
+}
+
 func main() {
 	if len(os.Args) != 5 {
 		fail("usage: nfs-mount SERVER REMOTE_PATH TARGET ro|rw")
@@ -54,7 +62,7 @@ func main() {
 	// webOS kernels provide the NFS/NFS4 filesystem but LG does not ship
 	// mount.nfs. Supplying the NFS-specific mount data here lets us invoke
 	// mount(2) directly without any external userspace helper.
-	data := "vers=4,addr=" + addr + ",proto=tcp,port=2049"
+	data := mountData(addr, access)
 	source := server + ":" + remote
 	if err := syscall.Mount(source, target, "nfs4", flags, data); err != nil {
 		fail("NFSv4 mount failed for %s at %s: %v", source, target, err)
